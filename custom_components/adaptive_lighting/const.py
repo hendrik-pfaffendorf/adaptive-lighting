@@ -82,7 +82,7 @@ DOCS[CONF_MIN_BRIGHTNESS] = "Minimum brightness percentage. 💡"
 CONF_MIN_COLOR_TEMP, DEFAULT_MIN_COLOR_TEMP = "min_color_temp", 2000
 DOCS[CONF_MIN_COLOR_TEMP] = "Warmest color temperature in Kelvin. 🔥"
 
-CONF_COLOR_TEMP_SENSOR, DEFAULT_COLOR_TEMP_SENSOR = "color_temp_sensor", NONE_STR
+CONF_COLOR_TEMP_SENSOR, DEFAULT_COLOR_TEMP_SENSOR = "color_temp_sensor", "None"
 DOCS[CONF_COLOR_TEMP_SENSOR] = (
     "Entity ID of a sensor providing the target color temperature in Kelvin. "
     "When configured, this sensor value is read on each adaptation cycle to override "

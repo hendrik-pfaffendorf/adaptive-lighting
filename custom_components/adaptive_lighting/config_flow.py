@@ -190,7 +190,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         advanced_schema: dict[vol.Marker, Any] = {}
         for name, default, validation in VALIDATION_TUPLES:
             val = form_data.get(name, default)
-            if val == NONE_STR and name in to_replace:
+            if val in (NONE_STR, None, "") and name in to_replace:
                 key = vol.Optional(name)
             else:
                 key = vol.Optional(name, default=val)
