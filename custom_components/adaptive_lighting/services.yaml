@@ -115,6 +115,13 @@ change_switch_settings:
       example: 5500
       selector:
         text: null
+    color_temp_sensor:
+      description: Entity ID of a sensor providing target color temperature in Kelvin. 🌡️
+      required: false
+      example: sensor.natural_lighting_target_cct
+      selector:
+        entity:
+          domain: sensor
     min_brightness:
       description: Minimum brightness percentage. 💡
       required: false

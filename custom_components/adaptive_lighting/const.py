@@ -82,6 +82,13 @@ DOCS[CONF_MIN_BRIGHTNESS] = "Minimum brightness percentage. 💡"
 CONF_MIN_COLOR_TEMP, DEFAULT_MIN_COLOR_TEMP = "min_color_temp", 2000
 DOCS[CONF_MIN_COLOR_TEMP] = "Warmest color temperature in Kelvin. 🔥"
 
+CONF_COLOR_TEMP_SENSOR, DEFAULT_COLOR_TEMP_SENSOR = "color_temp_sensor", NONE_STR
+DOCS[CONF_COLOR_TEMP_SENSOR] = (
+    "Entity ID of a sensor providing the target color temperature in Kelvin. "
+    "When configured, this sensor value is read on each adaptation cycle to override "
+    "the sun-position color temperature calculation. 🌡️"
+)
+
 CONF_ONLY_ONCE, DEFAULT_ONLY_ONCE = "only_once", False
 DOCS[CONF_ONLY_ONCE] = (
     "Adapt lights only when they are turned on (`true`) or keep adapting them "
@@ -348,6 +355,7 @@ BASIC_OPTIONS: set[str] = {
     CONF_MAX_BRIGHTNESS,
     CONF_MIN_COLOR_TEMP,
     CONF_MAX_COLOR_TEMP,
+    CONF_COLOR_TEMP_SENSOR,
     CONF_SLEEP_BRIGHTNESS,
     CONF_SLEEP_COLOR_TEMP,
     CONF_TRANSITION,
@@ -369,6 +377,7 @@ VALIDATION_TUPLES: list[tuple[str, Any, Any]] = [
     (CONF_MAX_BRIGHTNESS, DEFAULT_MAX_BRIGHTNESS, int_between(1, 100)),
     (CONF_MIN_COLOR_TEMP, DEFAULT_MIN_COLOR_TEMP, int_between(1000, 10000)),
     (CONF_MAX_COLOR_TEMP, DEFAULT_MAX_COLOR_TEMP, int_between(1000, 10000)),
+    (CONF_COLOR_TEMP_SENSOR, DEFAULT_COLOR_TEMP_SENSOR, str),
     (CONF_PREFER_RGB_COLOR, DEFAULT_PREFER_RGB_COLOR, bool),
     (CONF_SLEEP_BRIGHTNESS, DEFAULT_SLEEP_BRIGHTNESS, int_between(1, 100)),
     (

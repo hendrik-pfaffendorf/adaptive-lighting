@@ -6,6 +6,7 @@ import asyncio
 import datetime
 import hashlib
 import logging
+import math
 import zoneinfo
 from copy import deepcopy
 from datetime import timedelta
@@ -73,8 +74,10 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import slugify
 from homeassistant.util.color import (
+    color_RGB_to_xy,
     color_temperature_to_rgb,
     color_xy_to_RGB,
+    color_xy_to_hs,
 )
 
 from .adaptation_utils import (
@@ -100,6 +103,7 @@ from .const import (
     CONF_BRIGHTNESS_MODE,
     CONF_BRIGHTNESS_MODE_TIME_DARK,
     CONF_BRIGHTNESS_MODE_TIME_LIGHT,
+    CONF_COLOR_TEMP_SENSOR,
     CONF_DETECT_NON_HA_CHANGES,
     CONF_EXPAND_LIGHT_GROUPS,
     CONF_INCLUDE_CONFIG_IN_ATTRIBUTES,
@@ -924,6 +928,7 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
 
         # Set in self._update_attrs_and_maybe_adapt_lights
         self._settings: dict[str, Any] = {}
+        self._color_temp_sensor: str | None = None
 
         # Set and unset tracker in async_turn_on and async_turn_off
         self.remove_listeners: list[CALLBACK_TYPE] = []
@@ -968,6 +973,10 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
 
         self.initial_transition = data[CONF_INITIAL_TRANSITION]
         self._sleep_transition = data[CONF_SLEEP_TRANSITION]
+        color_temp_sensor = data.get(CONF_COLOR_TEMP_SENSOR)
+        self._color_temp_sensor = (
+            None if color_temp_sensor in (NONE_STR, None, "") else color_temp_sensor
+        )
         self._only_once = data[CONF_ONLY_ONCE]
         self._prefer_rgb_color = data[CONF_PREFER_RGB_COLOR]
         self._separate_turn_on_commands = data[CONF_SEPARATE_TURN_ON_COMMANDS]
@@ -1225,7 +1234,10 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the attributes of the switch."""
-        extra_state_attributes: dict[str, Any] = {"configuration": self._config}
+        extra_state_attributes: dict[str, Any] = {
+            "configuration": self._config,
+            "color_temp_sensor": self._color_temp_sensor,
+        }
         if not self.is_on:
             for key in self._settings:
                 extra_state_attributes[key] = None
@@ -1305,6 +1317,36 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
             force=False,
         )
 
+    def _apply_color_temp_sensor(self) -> None:
+        """Override color temp with external sensor if configured and sleep mode is off."""
+        if self.sleep_mode_switch.is_on:
+            return
+        if not self._color_temp_sensor:
+            return
+        state = self.hass.states.get(self._color_temp_sensor)
+        if state is None or state.state in ("unknown", "unavailable", "None"):
+            return
+        try:
+            cct = int(round(float(state.state)))
+            min_cct = self._sun_light_settings.min_color_temp
+            max_cct = self._sun_light_settings.max_color_temp
+            cct = clamp(cct, min_cct, max_cct)
+            self._settings["color_temp_kelvin"] = cct
+            self._settings["color_temp_mired"] = math.floor(1000000 / cct)
+            r, g, b = color_temperature_to_rgb(cct)
+            self._settings["rgb_color"] = (round(r), round(g), round(b))
+            xy = color_RGB_to_xy(r, g, b)
+            self._settings["xy_color"] = xy
+            self._settings["hs_color"] = color_xy_to_hs(*xy)
+        except (ValueError, TypeError) as err:
+            _LOGGER.debug(
+                "%s: Could not parse color_temp_sensor '%s' state '%s': %s",
+                self._name,
+                self._color_temp_sensor,
+                state.state,
+                err,
+            )
+
     async def prepare_adaptation_data(
         self,
         light: str,
@@ -1347,6 +1389,7 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
             self.sleep_mode_switch.is_on,
             transition,
         )
+        self._apply_color_temp_sensor()
 
         # Build service data.
         service_data: dict[str, Any] = {ATTR_ENTITY_ID: light}
@@ -1557,6 +1600,7 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
                 transition,
             ),
         )
+        self._apply_color_temp_sensor()
         self.async_write_ha_state()
 
         if not force and self._only_once:

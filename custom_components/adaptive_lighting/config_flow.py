@@ -11,6 +11,7 @@ from homeassistant.helpers.selector import EntitySelector, EntitySelectorConfig
 
 from .const import (  # pylint: disable=unused-import
     BASIC_OPTIONS,
+    CONF_COLOR_TEMP_SENSOR,
     CONF_LIGHTS,
     DOMAIN,
     EXTRA_VALIDATION,
@@ -177,12 +178,22 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     multiple=True,
                 ),
             ),
+            CONF_COLOR_TEMP_SENSOR: EntitySelector(
+                EntitySelectorConfig(
+                    domain="sensor",
+                    multiple=False,
+                ),
+            ),
         }
 
         basic_schema: dict[vol.Marker, Any] = {}
         advanced_schema: dict[vol.Marker, Any] = {}
         for name, default, validation in VALIDATION_TUPLES:
-            key = vol.Optional(name, default=form_data.get(name, default))
+            val = form_data.get(name, default)
+            if val == NONE_STR and name in to_replace:
+                key = vol.Optional(name)
+            else:
+                key = vol.Optional(name, default=val)
             schema = basic_schema if name in BASIC_OPTIONS else advanced_schema
             schema[key] = to_replace.get(name, validation)
 

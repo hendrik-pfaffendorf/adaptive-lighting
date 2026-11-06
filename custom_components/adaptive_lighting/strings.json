@@ -33,12 +33,14 @@
           "max_brightness": "max_brightness: Maximum brightness percentage. 💡",
           "min_color_temp": "min_color_temp: Warmest color temperature in Kelvin. 🔥",
           "max_color_temp": "max_color_temp: Coldest color temperature in Kelvin. ❄️",
+          "color_temp_sensor": "color_temp_sensor: Entity ID of a sensor providing target Kelvin (overrides sun calculation). 🌡️",
           "sleep_brightness": "sleep_brightness",
           "sleep_color_temp": "sleep_color_temp"
         },
         "data_description": {
           "interval": "Frequency to adapt the lights, in seconds. 🔄",
           "transition": "Duration of transition when lights change, in seconds. 🕑",
+          "color_temp_sensor": "When configured, Adaptive Lighting reads this sensor on each adaptation cycle to set color temperature instead of calculating it from sun elevation. 🌡️",
           "sleep_brightness": "Brightness percentage of lights in sleep mode. 😴",
           "sleep_color_temp": "Color temperature in sleep mode (used when `sleep_rgb_or_color_temp` is `color_temp`) in Kelvin. 😴"
         },
