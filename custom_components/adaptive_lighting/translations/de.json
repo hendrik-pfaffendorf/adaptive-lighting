@@ -34,14 +34,14 @@
           "max_brightness": "max_brightness: Maximale Helligkeit in Prozent. 💡",
           "min_color_temp": "min_color_temp: Wärmste Farbtemperatur in Kelvin. 🔥",
           "max_color_temp": "max_color_temp: Kälteste Farbtemperatur in Kelvin. ❄️",
-          "color_temp_sensor": "color_temp_sensor: Sensor-Entity für die Farbtemperatur in Kelvin (überschreibt die Sonnenberechnung). 🌡️",
+          "color_mode": "color_mode: Farbtemperaturmodus (default, linear, tanh). 🌡️",
           "sleep_brightness": "sleep_brightness, Schlafhelligkeit in %",
           "sleep_color_temp": "sleep_color_temp, Schlaffarbtemperatur in Kelvin"
         },
         "data_description": {
           "interval": "Häufigkeit der Lichtanpassung in Sekunden. 🔄",
           "transition": "Dauer des Übergangs beim Lichtwechsel in Sekunden. 🕑",
-          "color_temp_sensor": "Wenn konfiguriert, liest Adaptive Lighting diesen Sensor in jedem Anpassungszyklus, um die Farbtemperatur zu setzen, anstatt sie aus dem Sonnenstand zu berechnen. 🌡️",
+          "color_mode": "Zu verwendender Farbtemperaturmodus: default (Sonnenstand), linear oder tanh S-Kurve mit Blaue Stunde- und Goldene Stunde-Übergängen. 🌡️",
           "sleep_brightness": "Helligkeit der Lichter im Schlafmodus in Prozent. 😴",
           "sleep_color_temp": "Farbtemperatur im Schlafmodus in Kelvin (wird verwendet, wenn `sleep_rgb_or_color_temp` `color_temp` ist) . 😴"
         },

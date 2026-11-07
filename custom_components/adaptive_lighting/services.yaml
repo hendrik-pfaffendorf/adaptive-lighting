@@ -115,13 +115,16 @@ change_switch_settings:
       example: 5500
       selector:
         text: null
-    color_temp_sensor:
-      description: Entity ID of a sensor providing target color temperature in Kelvin. 🌡️
+    color_mode:
+      description: Color temperature mode to use (default, linear, tanh). 🌡️
       required: false
-      example: sensor.natural_lighting_target_cct
+      example: tanh
       selector:
-        entity:
-          domain: sensor
+        select:
+          options:
+          - default
+          - linear
+          - tanh
     min_brightness:
       description: Minimum brightness percentage. 💡
       required: false

@@ -82,12 +82,6 @@ DOCS[CONF_MIN_BRIGHTNESS] = "Minimum brightness percentage. 💡"
 CONF_MIN_COLOR_TEMP, DEFAULT_MIN_COLOR_TEMP = "min_color_temp", 2000
 DOCS[CONF_MIN_COLOR_TEMP] = "Warmest color temperature in Kelvin. 🔥"
 
-CONF_COLOR_TEMP_SENSOR, DEFAULT_COLOR_TEMP_SENSOR = "color_temp_sensor", "None"
-DOCS[CONF_COLOR_TEMP_SENSOR] = (
-    "Entity ID of a sensor providing the target color temperature in Kelvin. "
-    "When configured, this sensor value is read on each adaptation cycle to override "
-    "the sun-position color temperature calculation. 🌡️"
-)
 
 CONF_ONLY_ONCE, DEFAULT_ONLY_ONCE = "only_once", False
 DOCS[CONF_ONLY_ONCE] = (
@@ -211,6 +205,35 @@ CONF_BRIGHTNESS_MODE_TIME_LIGHT, DEFAULT_BRIGHTNESS_MODE_TIME_LIGHT = (
 DOCS[CONF_BRIGHTNESS_MODE_TIME_LIGHT] = (
     "(Ignored if `brightness_mode='default'`) The duration in seconds to ramp up/down "
     "the brightness after/before sunrise/sunset. 📈📉."
+)
+
+CONF_COLOR_MODE, DEFAULT_COLOR_MODE = "color_mode", "default"
+DOCS[CONF_COLOR_MODE] = (
+    "Color temperature mode to use. Possible values are `default`, `linear`, and `tanh` "
+    "(uses `color_mode_time_dark` and `color_mode_time_light`). 🌡️"
+)
+CONF_COLOR_MODE_TIME_DARK, DEFAULT_COLOR_MODE_TIME_DARK = (
+    "color_mode_time_dark",
+    900,
+)
+DOCS[CONF_COLOR_MODE_TIME_DARK] = (
+    "(Ignored if `color_mode='default'`) The duration in seconds to ramp up/down "
+    "the color temperature before/after sunrise/sunset. 📈📉"
+)
+CONF_COLOR_MODE_TIME_LIGHT, DEFAULT_COLOR_MODE_TIME_LIGHT = (
+    "color_mode_time_light",
+    3600,
+)
+DOCS[CONF_COLOR_MODE_TIME_LIGHT] = (
+    "(Ignored if `color_mode='default'`) The duration in seconds to ramp up/down "
+    "the color temperature after/before sunrise/sunset. 📈📉."
+)
+CONF_USE_WEATHER_ADJUSTMENT, DEFAULT_USE_WEATHER_ADJUSTMENT = (
+    "use_weather_adjustment",
+    True,
+)
+DOCS[CONF_USE_WEATHER_ADJUSTMENT] = (
+    "Adjust color temperature and daylight peak based on real-time weather and cloud cover from Open-Meteo. ☁️"
 )
 
 CONF_TAKE_OVER_CONTROL, DEFAULT_TAKE_OVER_CONTROL = "take_over_control", True
@@ -355,7 +378,7 @@ BASIC_OPTIONS: set[str] = {
     CONF_MAX_BRIGHTNESS,
     CONF_MIN_COLOR_TEMP,
     CONF_MAX_COLOR_TEMP,
-    CONF_COLOR_TEMP_SENSOR,
+    CONF_COLOR_MODE,
     CONF_SLEEP_BRIGHTNESS,
     CONF_SLEEP_COLOR_TEMP,
     CONF_TRANSITION,
@@ -377,7 +400,6 @@ VALIDATION_TUPLES: list[tuple[str, Any, Any]] = [
     (CONF_MAX_BRIGHTNESS, DEFAULT_MAX_BRIGHTNESS, int_between(1, 100)),
     (CONF_MIN_COLOR_TEMP, DEFAULT_MIN_COLOR_TEMP, int_between(1000, 10000)),
     (CONF_MAX_COLOR_TEMP, DEFAULT_MAX_COLOR_TEMP, int_between(1000, 10000)),
-    (CONF_COLOR_TEMP_SENSOR, DEFAULT_COLOR_TEMP_SENSOR, str),
     (CONF_PREFER_RGB_COLOR, DEFAULT_PREFER_RGB_COLOR, bool),
     (CONF_SLEEP_BRIGHTNESS, DEFAULT_SLEEP_BRIGHTNESS, int_between(1, 100)),
     (
@@ -420,6 +442,20 @@ VALIDATION_TUPLES: list[tuple[str, Any, Any]] = [
     ),
     (CONF_BRIGHTNESS_MODE_TIME_DARK, DEFAULT_BRIGHTNESS_MODE_TIME_DARK, int),
     (CONF_BRIGHTNESS_MODE_TIME_LIGHT, DEFAULT_BRIGHTNESS_MODE_TIME_LIGHT, int),
+    (
+        CONF_COLOR_MODE,
+        DEFAULT_COLOR_MODE,
+        selector.SelectSelector(  # type: ignore[arg-type]
+            selector.SelectSelectorConfig(
+                options=["default", "linear", "tanh"],
+                multiple=False,
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            ),
+        ),
+    ),
+    (CONF_COLOR_MODE_TIME_DARK, DEFAULT_COLOR_MODE_TIME_DARK, int),
+    (CONF_COLOR_MODE_TIME_LIGHT, DEFAULT_COLOR_MODE_TIME_LIGHT, int),
+    (CONF_USE_WEATHER_ADJUSTMENT, DEFAULT_USE_WEATHER_ADJUSTMENT, bool),
     (CONF_TAKE_OVER_CONTROL, DEFAULT_TAKE_OVER_CONTROL, bool),
     (
         CONF_TAKE_OVER_CONTROL_MODE,
@@ -490,6 +526,8 @@ EXTRA_VALIDATION: dict[str, tuple[Any, Any]] = {
     CONF_MAX_SUNSET_TIME: (cv.time, str),
     CONF_BRIGHTNESS_MODE_TIME_LIGHT: (cv.time_period, timedelta_as_int),
     CONF_BRIGHTNESS_MODE_TIME_DARK: (cv.time_period, timedelta_as_int),
+    CONF_COLOR_MODE_TIME_LIGHT: (cv.time_period, timedelta_as_int),
+    CONF_COLOR_MODE_TIME_DARK: (cv.time_period, timedelta_as_int),
 }
 
 
