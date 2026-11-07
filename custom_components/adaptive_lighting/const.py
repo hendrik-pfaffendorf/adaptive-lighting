@@ -235,6 +235,12 @@ DOCS[CONF_DAWN_DURATION] = (
     "Duration of the 1st S-curve rise from night floor to blue hour crest in seconds (e.g., 5400s = 90min). 🌅"
 )
 
+CONF_USE_BLUE_HOUR_PEAK, DEFAULT_USE_BLUE_HOUR_PEAK = "use_blue_hour_peak", True
+DOCS[CONF_USE_BLUE_HOUR_PEAK] = (
+    "Whether to apply the astronomical pre-dawn blue hour peak and golden hour dip. "
+    "When disabled, lighting ascends directly into morning daylight. ❄️"
+)
+
 CONF_BLUE_HOUR_KELVIN, DEFAULT_BLUE_HOUR_KELVIN = "blue_hour_kelvin", 3750
 DOCS[CONF_BLUE_HOUR_KELVIN] = (
     "Target color temperature in Kelvin reached at the blue hour crest before sunrise dip. ❄️"
@@ -491,6 +497,7 @@ VALIDATION_TUPLES: list[tuple[str, Any, Any]] = [
     ),
     (CONF_COLOR_MODE_TIME_DARK, DEFAULT_COLOR_MODE_TIME_DARK, int),
     (CONF_COLOR_MODE_TIME_LIGHT, DEFAULT_COLOR_MODE_TIME_LIGHT, int),
+    (CONF_USE_BLUE_HOUR_PEAK, DEFAULT_USE_BLUE_HOUR_PEAK, bool),
     (CONF_DAWN_DURATION, DEFAULT_DAWN_DURATION, int_between(300, 28800)),
     (CONF_BLUE_HOUR_KELVIN, DEFAULT_BLUE_HOUR_KELVIN, int_between(1500, 8000)),
     (CONF_BLUE_HOUR_DURATION, DEFAULT_BLUE_HOUR_DURATION, int_between(300, 7200)),

@@ -157,6 +157,20 @@ class SunEvents:
             sunset = min(max_sunset, sunset)
         return sunset
 
+    def astral_blue_hour(
+        self,
+        dt: datetime.date,
+    ) -> datetime.datetime | None:
+        """Calculate the astronomical rising blue hour peak for the observer.
+
+        Uses astral.sun.dawn with 5.0° solar depression (midpoint of -6° to -4° blue hour).
+        Returns None if the sun never reaches this elevation (e.g. polar night or midnight sun).
+        """
+        try:
+            return astral.sun.dawn(self.astral_observer, dt, depression=5.0)
+        except (ValueError, TypeError):
+            return None
+
     def _replace_time(
         self,
         dt: datetime.date,
@@ -301,6 +315,7 @@ class SunLightSettings:
     color_mode_time_light: datetime.timedelta = datetime.timedelta(seconds=3600)
     color_mode: Literal["default", "linear", "tanh"] = "default"
     use_weather_adjustment: bool = True
+    use_blue_hour_peak: bool = True
     dawn_duration: datetime.timedelta = datetime.timedelta(seconds=5400)
     blue_hour_kelvin: int = 3750
     blue_hour_duration: datetime.timedelta = datetime.timedelta(seconds=2700)
@@ -428,9 +443,21 @@ class SunLightSettings:
         sunset_offset = _to_sec(self.sunset_descent_offset)
         dusk_dur = max(1800.0, _to_sec(self.dusk_duration))
 
-        # Reference timestamps
-        ts_blue = ts_sunrise - blue_dur
-        ts_dawn = ts_blue - dawn_dur
+        # Check astronomical blue hour peak
+        astral_bh = self.sun.astral_blue_hour(dt.date()) if self.use_blue_hour_peak else None
+        effective_use_blue = self.use_blue_hour_peak and (astral_bh is not None)
+
+        if effective_use_blue:
+            ts_blue = astral_bh.timestamp()
+            if ts_blue >= ts_sunrise:
+                ts_blue = ts_sunrise - 1800.0
+            ts_dawn = ts_blue - dawn_dur
+        else:
+            ts_ascent_start = ts_sunrise - (day_ascent_dur * 0.35)
+            ts_ascent_full = ts_sunrise + (day_ascent_dur * 0.65)
+            ts_blue = None
+            ts_dawn = None
+
         ts_day_full = ts_sunrise + day_ascent_dur
         ts_dusk_start = ts_sunset + sunset_offset
         ts_dusk_end = ts_dusk_start + dusk_dur
@@ -458,6 +485,21 @@ class SunLightSettings:
                 cct = k_day + (k_min - k_day) * smootherstep(u)
                 return int(round(clamp(cct, self.min_color_temp, self.max_color_temp)))
 
+        if not effective_use_blue:
+            # Mode B: Direct smooth ascent without Blue Hour peak (or when state does not occur)
+            if ts_now < ts_ascent_start or ts_now >= ts_dusk_end:
+                cct = k_min
+            elif ts_now < ts_ascent_full:
+                u = (ts_now - ts_ascent_start) / (ts_ascent_full - ts_ascent_start)
+                cct = k_min + (k_day - k_min) * smootherstep(u)
+            elif ts_now < ts_dusk_start:
+                cct = k_day
+            else:
+                u = (ts_now - ts_dusk_start) / (ts_dusk_end - ts_dusk_start)
+                cct = k_day + (k_min - k_day) * smootherstep(u)
+            return int(round(clamp(cct, self.min_color_temp, self.max_color_temp)))
+
+        # Mode A: 4-Stage S-Curve with Astronomical Blue Hour Crest
         # 1. Deep night floor
         if ts_now <= ts_dawn or ts_now >= ts_dusk_end:
             cct = k_min
