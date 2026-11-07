@@ -32,7 +32,7 @@ from .switch import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["switch"]
+PLATFORMS = ["switch", "sensor"]
 
 
 def _all_unique_names(value: list[dict[str, Any]]) -> list[dict[str, Any]]:
