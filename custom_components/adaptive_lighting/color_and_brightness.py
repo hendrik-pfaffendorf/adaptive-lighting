@@ -320,12 +320,12 @@ class SunLightSettings:
     color_mode: Literal["default", "linear", "tanh"] = "default"
     use_weather_adjustment: bool = True
     use_blue_hour_peak: bool = True
-    dawn_duration: datetime.timedelta = datetime.timedelta(seconds=5400)
-    blue_hour_kelvin: int = 3750
-    sunrise_dip_pct: int = 30
-    day_ascent_duration: datetime.timedelta = datetime.timedelta(seconds=7200)
+    dawn_duration: datetime.timedelta = datetime.timedelta(seconds=10800)
+    blue_hour_kelvin: int = 4450
+    sunrise_dip_pct: int = 44
+    day_ascent_duration: datetime.timedelta = datetime.timedelta(seconds=5400)
     dusk_duration: datetime.timedelta = datetime.timedelta(seconds=10800)
-    sunset_descent_offset: datetime.timedelta = datetime.timedelta(seconds=900)
+    sunset_descent_offset: datetime.timedelta = datetime.timedelta(seconds=0)
     sunrise_offset: datetime.timedelta = datetime.timedelta()
     sunset_offset: datetime.timedelta = datetime.timedelta()
     timezone: datetime.tzinfo = UTC

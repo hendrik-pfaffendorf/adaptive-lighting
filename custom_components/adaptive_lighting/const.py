@@ -230,9 +230,9 @@ DOCS[CONF_COLOR_MODE_TIME_LIGHT] = (
     "the color temperature after/before sunrise/sunset. 📈📉."
 )
 
-CONF_DAWN_DURATION, DEFAULT_DAWN_DURATION = "dawn_duration", 5400
+CONF_DAWN_DURATION, DEFAULT_DAWN_DURATION = "dawn_duration", 10800
 DOCS[CONF_DAWN_DURATION] = (
-    "Duration of the 1st S-curve rise from night floor to blue hour crest (or before sunrise when blue hour peak is disabled) in seconds (e.g., 5400s = 90min). 🌅"
+    "Duration of the 1st S-curve rise from night floor to blue hour crest (or before sunrise when blue hour peak is disabled) in seconds (e.g., 10800s = 180min). 🌅"
 )
 
 CONF_USE_BLUE_HOUR_PEAK, DEFAULT_USE_BLUE_HOUR_PEAK = "use_blue_hour_peak", True
@@ -241,19 +241,19 @@ DOCS[CONF_USE_BLUE_HOUR_PEAK] = (
     "When disabled, lighting ascends directly into morning daylight. ❄️"
 )
 
-CONF_BLUE_HOUR_KELVIN, DEFAULT_BLUE_HOUR_KELVIN = "blue_hour_kelvin", 3750
+CONF_BLUE_HOUR_KELVIN, DEFAULT_BLUE_HOUR_KELVIN = "blue_hour_kelvin", 4450
 DOCS[CONF_BLUE_HOUR_KELVIN] = (
     "Target color temperature in Kelvin reached at the astronomical blue hour crest before sunrise dip. ❄️"
 )
 
-CONF_SUNRISE_DIP_PCT, DEFAULT_SUNRISE_DIP_PCT = "sunrise_dip_pct", 30
+CONF_SUNRISE_DIP_PCT, DEFAULT_SUNRISE_DIP_PCT = "sunrise_dip_pct", 44
 DOCS[CONF_SUNRISE_DIP_PCT] = (
-    "Percentage of color temperature range to dip down to right at sunrise for golden hour (e.g., 30% ≈ 3,050 K). 🥞"
+    "Percentage of color temperature range to dip down to right at sunrise for golden hour (e.g., 44% ≈ 3,550 K). 🥞"
 )
 
-CONF_DAY_ASCENT_DURATION, DEFAULT_DAY_ASCENT_DURATION = "day_ascent_duration", 7200
+CONF_DAY_ASCENT_DURATION, DEFAULT_DAY_ASCENT_DURATION = "day_ascent_duration", 5400
 DOCS[CONF_DAY_ASCENT_DURATION] = (
-    "Duration in seconds to transition from sunrise golden dip to 100% full daylight plateau (e.g., 7200s = 2 hours). ☀️"
+    "Duration in seconds to transition from sunrise golden dip to 100% full daylight plateau (e.g., 5400s = 90min). ☀️"
 )
 
 CONF_DUSK_DURATION, DEFAULT_DUSK_DURATION = "dusk_duration", 10800
@@ -261,9 +261,9 @@ DOCS[CONF_DUSK_DURATION] = (
     "Duration of the evening S-curve descent in seconds from sunset down to the warm night floor (e.g., 10800s = 3 hours). 🌇"
 )
 
-CONF_SUNSET_DESCENT_OFFSET, DEFAULT_SUNSET_DESCENT_OFFSET = "sunset_descent_offset", 900
+CONF_SUNSET_DESCENT_OFFSET, DEFAULT_SUNSET_DESCENT_OFFSET = "sunset_descent_offset", 0
 DOCS[CONF_SUNSET_DESCENT_OFFSET] = (
-    "Delay in seconds after sunset before starting the evening descent (default 900s = 15min). 🌆"
+    "Delay in seconds after sunset before starting the evening descent (default 0s = start at sunset). 🌆"
 )
 CONF_USE_WEATHER_ADJUSTMENT, DEFAULT_USE_WEATHER_ADJUSTMENT = (
     "use_weather_adjustment",
