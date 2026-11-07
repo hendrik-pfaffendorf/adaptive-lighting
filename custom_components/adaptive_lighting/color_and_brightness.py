@@ -315,7 +315,7 @@ class SunLightSettings:
     brightness_mode_time_dark: datetime.timedelta
     brightness_mode_time_light: datetime.timedelta
     brightness_mode: Literal["default", "linear", "tanh"] = "default"
-    color_mode_time_dark: datetime.timedelta = datetime.timedelta(seconds=900)
+    color_mode_time_dark: datetime.timedelta = datetime.timedelta(seconds=7200)
     color_mode_time_light: datetime.timedelta = datetime.timedelta(seconds=3600)
     color_mode: Literal["default", "linear", "tanh"] = "default"
     use_weather_adjustment: bool = True
@@ -324,8 +324,6 @@ class SunLightSettings:
     blue_hour_kelvin: int = 4450
     sunrise_dip_pct: int = 44
     day_ascent_duration: datetime.timedelta = datetime.timedelta(seconds=5400)
-    dusk_duration: datetime.timedelta = datetime.timedelta(seconds=10800)
-    sunset_descent_offset: datetime.timedelta = datetime.timedelta(seconds=0)
     sunrise_offset: datetime.timedelta = datetime.timedelta()
     sunset_offset: datetime.timedelta = datetime.timedelta()
     timezone: datetime.tzinfo = UTC
@@ -429,7 +427,7 @@ class SunLightSettings:
         dt: datetime.datetime,
         cloud_cover: float = 0.0,
     ) -> int:
-        """Calculate continuous circadian color temperature in Kelvin using 4-stage Hermite S-curves."""
+        """Calculate continuous circadian color temperature in Kelvin using morning Hermite S-curves and evening tanh ramp."""
         ts_now = dt.timestamp()
         local_date = dt.astimezone(self.timezone).date()
         sunrise = self.sun.sunrise(local_date)
@@ -443,12 +441,10 @@ class SunLightSettings:
 
         dawn_dur = max(300.0, _to_sec(self.dawn_duration))
         day_ascent_dur = max(300.0, _to_sec(self.day_ascent_duration))
-        sunset_offset = _to_sec(self.sunset_descent_offset)
-        dusk_dur = max(1800.0, _to_sec(self.dusk_duration))
+        color_dark = max(300.0, _to_sec(self.color_mode_time_dark))
+        color_light = max(300.0, _to_sec(self.color_mode_time_light))
 
-        ts_dusk_start = ts_sunset + sunset_offset
-        ts_dusk_end = ts_dusk_start + dusk_dur
-        ts_day_full = min(ts_sunrise + day_ascent_dur, ts_dusk_start)
+        ts_day_full = min(ts_sunrise + day_ascent_dur, ts_sunset)
 
         # Check astronomical blue hour peak
         astral_bh = self.sun.astral_blue_hour(local_date) if self.use_blue_hour_peak else None
@@ -479,38 +475,41 @@ class SunLightSettings:
             k_day = k_max
         k_upper = max(k_max, k_day)
 
-        # Check late-night dusk wrap-around from previous day
-        if ts_now < ts_sunrise:
-            prev_sunset = self.sun.sunset(local_date - timedelta(days=1)).timestamp()
-            prev_dusk_start = prev_sunset + sunset_offset
-            prev_dusk_end = prev_dusk_start + dusk_dur
-            if ts_now < prev_dusk_end:
-                u = (ts_now - prev_dusk_start) / (prev_dusk_end - prev_dusk_start)
-                cct = k_day + (k_min - k_day) * smootherstep(u)
-                return int(round(clamp(cct, k_min, k_upper)))
+        def _evening_tanh(ts_target: float, ts_set: float) -> float:
+            return scaled_tanh(
+                ts_target - ts_set,
+                x1=-color_light,  # 95% of range before sunset
+                x2=+color_dark,   # 5% of range after sunset
+                y1=0.95,
+                y2=0.05,
+                y_min=k_min,
+                y_max=k_day,
+            )
+
+        prev_sunset = self.sun.sunset(local_date - timedelta(days=1)).timestamp()
+        k_day_target = _evening_tanh(ts_day_full, ts_sunset)
 
         if not effective_use_blue:
             # Mode B: Direct smooth ascent without Blue Hour peak (or when state does not occur)
-            if ts_now <= ts_ascent_start or ts_now >= ts_dusk_end:
-                cct = k_min
+            if ts_now <= ts_ascent_start:
+                cct = _evening_tanh(ts_now, prev_sunset)
             elif ts_now < ts_ascent_full:
                 u = (ts_now - ts_ascent_start) / (ts_ascent_full - ts_ascent_start)
-                cct = k_min + (k_day - k_min) * smootherstep(u)
-            elif ts_now < ts_dusk_start:
-                cct = k_day
+                k_start = _evening_tanh(ts_ascent_start, prev_sunset)
+                cct = k_start + (k_day_target - k_start) * smootherstep(u)
             else:
-                u = (ts_now - ts_dusk_start) / (ts_dusk_end - ts_dusk_start)
-                cct = k_day + (k_min - k_day) * smootherstep(u)
+                cct = _evening_tanh(ts_now, ts_sunset)
             return int(round(clamp(cct, k_min, k_upper)))
 
-        # Mode A: 4-Stage S-Curve with Astronomical Blue Hour Crest
-        # 1. Deep night floor
-        if ts_now <= ts_dawn or ts_now >= ts_dusk_end:
-            cct = k_min
+        # Mode A: Morning S-Curves with Astronomical Blue Hour Crest + Evening Tanh Descent
+        # 1. Pre-dawn / late-night wrap-around from previous sunset
+        if ts_now <= ts_dawn:
+            cct = _evening_tanh(ts_now, prev_sunset)
         # 2. Stage 1: Night floor -> Blue Hour Crest S-curve
         elif ts_now < ts_blue:
             u = (ts_now - ts_dawn) / (ts_blue - ts_dawn)
-            cct = k_min + (k_blue - k_min) * smootherstep(u)
+            k_start = _evening_tanh(ts_dawn, prev_sunset)
+            cct = k_start + (k_blue - k_start) * smootherstep(u)
         # 3. Stage 2: Blue Hour Crest -> Sunrise Golden Dip S-curve
         elif ts_now < ts_sunrise:
             u = (ts_now - ts_blue) / (ts_sunrise - ts_blue)
@@ -518,14 +517,10 @@ class SunLightSettings:
         # 4. Stage 3: Sunrise Golden Dip -> Full Daytime Plateau S-curve
         elif ts_now < ts_day_full:
             u = (ts_now - ts_sunrise) / (ts_day_full - ts_sunrise)
-            cct = k_dip + (k_day - k_dip) * smootherstep(u)
-        # 5. Stage 4: Daytime 100% Plateau (steady daylight across solar noon)
-        elif ts_now < ts_dusk_start:
-            cct = k_day
-        # 6. Stage 5: Evening Sunset Descent -> Night Floor S-curve
+            cct = k_dip + (k_day_target - k_dip) * smootherstep(u)
+        # 5. Daytime Plateau & Evening Tanh Descent (using color_mode_time_light & color_mode_time_dark)
         else:
-            u = (ts_now - ts_dusk_start) / (ts_dusk_end - ts_dusk_start)
-            cct = k_day + (k_min - k_day) * smootherstep(u)
+            cct = _evening_tanh(ts_now, ts_sunset)
 
         return int(round(clamp(cct, k_min, k_upper)))
 

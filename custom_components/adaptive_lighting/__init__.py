@@ -104,6 +104,32 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     """Set up the component."""
     data = hass.data.setdefault(DOMAIN, {})
 
+    # Migrate legacy options to the 4-stage circadian + evening tanh ramp defaults once
+    opts = dict(config_entry.options)
+    needs_update = False
+    for obsolete_key in ("blue_hour_duration", "dusk_duration", "sunset_descent_offset"):
+        if obsolete_key in opts:
+            opts.pop(obsolete_key)
+            needs_update = True
+
+    if opts.get("color_mode_time_dark") == 10000 or "dawn_duration" not in opts:
+        opts["brightness_mode"] = "tanh"
+        opts["brightness_mode_time_dark"] = 7200
+        opts["brightness_mode_time_light"] = 3600
+        opts["color_mode"] = "tanh"
+        opts["color_mode_time_dark"] = 7200
+        opts["color_mode_time_light"] = 3600
+        opts["use_blue_hour_peak"] = True
+        opts["dawn_duration"] = 10800
+        opts["blue_hour_kelvin"] = 4450
+        opts["sunrise_dip_pct"] = 44
+        opts["day_ascent_duration"] = 5400
+        opts["use_weather_adjustment"] = True
+        needs_update = True
+
+    if needs_update:
+        hass.config_entries.async_update_entry(config_entry, options=opts)
+
     # This will reload any changes the user made to any YAML configurations.
     # Called during 'quick reload' or hass.reload_config_entry
     hass.bus.async_listen("hass.config.entry_updated", reload_configuration_yaml)

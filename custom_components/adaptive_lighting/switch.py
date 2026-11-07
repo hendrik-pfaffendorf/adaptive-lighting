@@ -112,8 +112,6 @@ from .const import (
     CONF_BLUE_HOUR_KELVIN,
     CONF_SUNRISE_DIP_PCT,
     CONF_DAY_ASCENT_DURATION,
-    CONF_DUSK_DURATION,
-    CONF_SUNSET_DESCENT_OFFSET,
     CONF_USE_WEATHER_ADJUSTMENT,
     CONF_DETECT_NON_HA_CHANGES,
     CONF_EXPAND_LIGHT_GROUPS,
@@ -1062,8 +1060,6 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
             blue_hour_kelvin=data[CONF_BLUE_HOUR_KELVIN],
             sunrise_dip_pct=data[CONF_SUNRISE_DIP_PCT],
             day_ascent_duration=data[CONF_DAY_ASCENT_DURATION],
-            dusk_duration=data[CONF_DUSK_DURATION],
-            sunset_descent_offset=data[CONF_SUNSET_DESCENT_OFFSET],
             use_weather_adjustment=data[CONF_USE_WEATHER_ADJUSTMENT],
             timezone=zoneinfo.ZoneInfo(self.hass.config.time_zone),
         )
