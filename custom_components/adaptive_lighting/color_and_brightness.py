@@ -301,6 +301,13 @@ class SunLightSettings:
     color_mode_time_light: datetime.timedelta = datetime.timedelta(seconds=3600)
     color_mode: Literal["default", "linear", "tanh"] = "default"
     use_weather_adjustment: bool = True
+    dawn_duration: datetime.timedelta = datetime.timedelta(seconds=5400)
+    blue_hour_kelvin: int = 3750
+    blue_hour_duration: datetime.timedelta = datetime.timedelta(seconds=2700)
+    sunrise_dip_pct: int = 30
+    day_ascent_duration: datetime.timedelta = datetime.timedelta(seconds=7200)
+    dusk_duration: datetime.timedelta = datetime.timedelta(seconds=10800)
+    sunset_descent_offset: datetime.timedelta = datetime.timedelta(seconds=900)
     sunrise_offset: datetime.timedelta = datetime.timedelta()
     sunset_offset: datetime.timedelta = datetime.timedelta()
     timezone: datetime.tzinfo = UTC
@@ -404,71 +411,76 @@ class SunLightSettings:
         dt: datetime.datetime,
         cloud_cover: float = 0.0,
     ) -> int:
-        """Calculate continuous circadian color temperature in Kelvin using smooth tanh transitions."""
+        """Calculate continuous circadian color temperature in Kelvin using 4-stage Hermite S-curves."""
         ts_now = dt.timestamp()
         sunrise = self.sun.sunrise(dt)
         sunset = self.sun.sunset(dt)
         ts_sunrise = sunrise.timestamp()
         ts_sunset = sunset.timestamp()
 
-        dark_sec = max(300.0, self.color_mode_time_dark.total_seconds())
-        light_sec = max(300.0, self.color_mode_time_light.total_seconds())
+        # Retrieve durations in seconds (supporting both timedelta and int/float)
+        def _to_sec(val: datetime.timedelta | int | float) -> float:
+            return val.total_seconds() if isinstance(val, datetime.timedelta) else float(val)
 
-        # Dawn window: default ~2h (astronomical dawn), scaled by dark_sec
-        dawn_window = 7200.0 * (dark_sec / 2700.0)
-        ts_dawn = ts_sunrise - dawn_window
+        blue_dur = max(300.0, _to_sec(self.blue_hour_duration))
+        dawn_dur = max(300.0, _to_sec(self.dawn_duration))
+        day_ascent_dur = max(300.0, _to_sec(self.day_ascent_duration))
+        sunset_offset = _to_sec(self.sunset_descent_offset)
+        dusk_dur = max(1800.0, _to_sec(self.dusk_duration))
 
-        # Day ascent window: default ~1.5h post-sunrise, scaled by light_sec
-        day_ascent_window = 5400.0 * (light_sec / 3600.0)
+        # Reference timestamps
+        ts_blue = ts_sunrise - blue_dur
+        ts_dawn = ts_blue - dawn_dur
+        ts_day_full = ts_sunrise + day_ascent_dur
+        ts_dusk_start = ts_sunset + sunset_offset
+        ts_dusk_end = ts_dusk_start + dusk_dur
 
-        # Evening golden hour window: starts before sunset, scaled by light_sec
-        gh_eve_window = 3300.0 * (light_sec / 3600.0)
-        ts_eve_start = ts_sunset - gh_eve_window
+        # Reference color temperatures
+        k_min = float(self.min_color_temp)
+        k_max = float(self.max_color_temp)
+        k_blue = float(clamp(self.blue_hour_kelvin, self.min_color_temp, self.max_color_temp))
+        k_dip = k_min + (self.sunrise_dip_pct / 100.0) * (k_max - k_min)
+        k_dip = clamp(k_dip, k_min, k_blue)
 
-        # Dusk window: default ~2h post-sunset, scaled by dark_sec
-        dusk_window = 7200.0 * (dark_sec / 2700.0)
-        ts_dusk_end = ts_sunset + dusk_window
+        # Midday plateau target with optional Open-Meteo weather adjustment
+        if self.use_weather_adjustment and cloud_cover > 0:
+            k_day = min(k_max + 350.0, k_max + (cloud_cover / 100.0) * 350.0)
+        else:
+            k_day = k_max
 
-        # Check if we are in late-night dusk past midnight from the previous day
+        # Check late-night dusk wrap-around from previous day
         if ts_now < ts_sunrise:
             prev_sunset = self.sun.sunset(dt - timedelta(days=1)).timestamp()
-            prev_dusk_end = prev_sunset + dusk_window
+            prev_dusk_start = prev_sunset + sunset_offset
+            prev_dusk_end = prev_dusk_start + dusk_dur
             if ts_now < prev_dusk_end:
-                f_sun = 0.5 * (1.0 - math.tanh((ts_now - (prev_sunset - gh_eve_window * 0.3)) / (gh_eve_window * 0.35)))
-                f_dusk = 0.5 * (1.0 - math.tanh((ts_now - (prev_sunset + dusk_window * 0.48)) / (dusk_window * 0.26)))
-                factor = max(0.0, min(1.0, (0.28 + (1.0 - 0.28) * f_sun) * f_dusk))
-                cct = self.min_color_temp + factor * (self.max_color_temp - self.min_color_temp)
+                u = (ts_now - prev_dusk_start) / (prev_dusk_end - prev_dusk_start)
+                cct = k_day + (k_min - k_day) * smootherstep(u)
                 return int(round(clamp(cct, self.min_color_temp, self.max_color_temp)))
 
         # 1. Deep night floor
         if ts_now <= ts_dawn or ts_now >= ts_dusk_end:
-            factor = 0.0
-        # 2. Early Dawn Wakeup Ramp (ts_dawn -> ts_sunrise)
+            cct = k_min
+        # 2. Stage 1: Night floor -> Blue Hour Crest S-curve
+        elif ts_now < ts_blue:
+            u = (ts_now - ts_dawn) / (ts_blue - ts_dawn)
+            cct = k_min + (k_blue - k_min) * smootherstep(u)
+        # 3. Stage 2: Blue Hour Crest -> Sunrise Golden Dip S-curve
         elif ts_now < ts_sunrise:
-            center = ts_dawn + (ts_sunrise - ts_dawn) * 0.45
-            slope = (ts_sunrise - ts_dawn) * 0.28
-            s = 0.5 * (math.tanh((ts_now - center) / slope) + 1.0)
-            factor = max(0.0, min(0.72, s * 0.72))
-        # 3. Morning Golden Hour Dip & Climb to Day
-        elif ts_now < ts_sunrise + day_ascent_window:
-            t_rel = (ts_now - ts_sunrise) / day_ascent_window
-            f_dip = 0.5 * (math.tanh((t_rel - 0.28) / 0.15) + 1.0)
-            c_morn = 0.72 - (0.72 - 0.36) * f_dip
-            target_day = (0.88 + (cloud_cover / 100.0) * 0.12) if self.use_weather_adjustment else 1.0
-            f_day = 0.5 * (math.tanh((t_rel - 0.65) / 0.18) + 1.0)
-            factor = max(0.35, min(1.0, c_morn * (1.0 - f_day) + target_day * f_day))
-        # 4. Midday Plateau across Solar Noon (Day ascent -> Evening Golden Hour start)
-        elif ts_now <= ts_eve_start:
-            target_day = (0.88 + (cloud_cover / 100.0) * 0.12) if self.use_weather_adjustment else 1.0
-            factor = min(1.0, target_day)
-        # 5. Evening Golden Hour & Extended Dusk Fade (ts_eve_start -> ts_dusk_end)
+            u = (ts_now - ts_blue) / (ts_sunrise - ts_blue)
+            cct = k_blue + (k_dip - k_blue) * smootherstep(u)
+        # 4. Stage 3: Sunrise Golden Dip -> Full Daytime Plateau S-curve
+        elif ts_now < ts_day_full:
+            u = (ts_now - ts_sunrise) / (ts_day_full - ts_sunrise)
+            cct = k_dip + (k_day - k_dip) * smootherstep(u)
+        # 5. Stage 4: Daytime 100% Plateau (steady daylight across solar noon)
+        elif ts_now < ts_dusk_start:
+            cct = k_day
+        # 6. Stage 5: Evening Sunset Descent -> Night Floor S-curve
         else:
-            target_day = (0.88 + (cloud_cover / 100.0) * 0.12) if self.use_weather_adjustment else 1.0
-            f_sun = 0.5 * (1.0 - math.tanh((ts_now - (ts_sunset - gh_eve_window * 0.3)) / (gh_eve_window * 0.35)))
-            f_dusk = 0.5 * (1.0 - math.tanh((ts_now - (ts_sunset + dusk_window * 0.48)) / (dusk_window * 0.26)))
-            factor = max(0.0, min(1.0, (0.28 + (target_day - 0.28) * f_sun) * f_dusk))
+            u = (ts_now - ts_dusk_start) / (ts_dusk_end - ts_dusk_start)
+            cct = k_day + (k_min - k_day) * smootherstep(u)
 
-        cct = self.min_color_temp + factor * (self.max_color_temp - self.min_color_temp)
         return int(round(clamp(cct, self.min_color_temp, self.max_color_temp)))
 
     def color_temp_kelvin(
@@ -684,6 +696,15 @@ def lerp_color_hsv(
 def lerp(x: float, x1: float, x2: float, y1: float, y2: float) -> float:
     """Linearly interpolate between two values."""
     return y1 + (x - x1) * (y2 - y1) / (x2 - x1)
+
+
+def smootherstep(u: float) -> float:
+    """Quintic Hermite smootherstep with zero 1st and 2nd derivatives at endpoints."""
+    if u <= 0.0:
+        return 0.0
+    if u >= 1.0:
+        return 1.0
+    return u * u * u * (u * (u * 6.0 - 15.0) + 10.0)
 
 
 def clamp(value: float, minimum: float, maximum: float) -> float:
