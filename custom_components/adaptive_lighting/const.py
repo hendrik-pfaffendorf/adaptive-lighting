@@ -232,7 +232,7 @@ DOCS[CONF_COLOR_MODE_TIME_LIGHT] = (
 
 CONF_DAWN_DURATION, DEFAULT_DAWN_DURATION = "dawn_duration", 5400
 DOCS[CONF_DAWN_DURATION] = (
-    "Duration of the 1st S-curve rise from night floor to blue hour crest in seconds (e.g., 5400s = 90min). 🌅"
+    "Duration of the 1st S-curve rise from night floor to blue hour crest (or before sunrise when blue hour peak is disabled) in seconds (e.g., 5400s = 90min). 🌅"
 )
 
 CONF_USE_BLUE_HOUR_PEAK, DEFAULT_USE_BLUE_HOUR_PEAK = "use_blue_hour_peak", True
@@ -243,12 +243,7 @@ DOCS[CONF_USE_BLUE_HOUR_PEAK] = (
 
 CONF_BLUE_HOUR_KELVIN, DEFAULT_BLUE_HOUR_KELVIN = "blue_hour_kelvin", 3750
 DOCS[CONF_BLUE_HOUR_KELVIN] = (
-    "Target color temperature in Kelvin reached at the blue hour crest before sunrise dip. ❄️"
-)
-
-CONF_BLUE_HOUR_DURATION, DEFAULT_BLUE_HOUR_DURATION = "blue_hour_duration", 2700
-DOCS[CONF_BLUE_HOUR_DURATION] = (
-    "Duration of the blue hour transition from crest down to sunrise golden dip in seconds (default 2700s = 45min). ⏰"
+    "Target color temperature in Kelvin reached at the astronomical blue hour crest before sunrise dip. ❄️"
 )
 
 CONF_SUNRISE_DIP_PCT, DEFAULT_SUNRISE_DIP_PCT = "sunrise_dip_pct", 30
@@ -500,7 +495,6 @@ VALIDATION_TUPLES: list[tuple[str, Any, Any]] = [
     (CONF_USE_BLUE_HOUR_PEAK, DEFAULT_USE_BLUE_HOUR_PEAK, bool),
     (CONF_DAWN_DURATION, DEFAULT_DAWN_DURATION, int_between(300, 28800)),
     (CONF_BLUE_HOUR_KELVIN, DEFAULT_BLUE_HOUR_KELVIN, int_between(1500, 8000)),
-    (CONF_BLUE_HOUR_DURATION, DEFAULT_BLUE_HOUR_DURATION, int_between(300, 7200)),
     (CONF_SUNRISE_DIP_PCT, DEFAULT_SUNRISE_DIP_PCT, int_between(0, 100)),
     (CONF_DAY_ASCENT_DURATION, DEFAULT_DAY_ASCENT_DURATION, int_between(300, 28800)),
     (CONF_DUSK_DURATION, DEFAULT_DUSK_DURATION, int_between(1800, 43200)),
@@ -579,7 +573,6 @@ EXTRA_VALIDATION: dict[str, tuple[Any, Any]] = {
     CONF_COLOR_MODE_TIME_LIGHT: (cv.time_period, timedelta_as_int),
     CONF_COLOR_MODE_TIME_DARK: (cv.time_period, timedelta_as_int),
     CONF_DAWN_DURATION: (cv.time_period, timedelta_as_int),
-    CONF_BLUE_HOUR_DURATION: (cv.time_period, timedelta_as_int),
     CONF_DAY_ASCENT_DURATION: (cv.time_period, timedelta_as_int),
     CONF_DUSK_DURATION: (cv.time_period, timedelta_as_int),
     CONF_SUNSET_DESCENT_OFFSET: (cv.time_period, timedelta_as_int),
