@@ -90,6 +90,7 @@ from .adaptation_utils import (
     prepare_adaptation_data,
 )
 from .color_and_brightness import SunLightSettings
+from .weather import WeatherCoordinator
 from .const import (
     ADAPT_BRIGHTNESS_SWITCH,
     ADAPT_COLOR_SWITCH,
@@ -103,7 +104,10 @@ from .const import (
     CONF_BRIGHTNESS_MODE,
     CONF_BRIGHTNESS_MODE_TIME_DARK,
     CONF_BRIGHTNESS_MODE_TIME_LIGHT,
-    CONF_COLOR_TEMP_SENSOR,
+    CONF_COLOR_MODE,
+    CONF_COLOR_MODE_TIME_DARK,
+    CONF_COLOR_MODE_TIME_LIGHT,
+    CONF_USE_WEATHER_ADJUSTMENT,
     CONF_DETECT_NON_HA_CHANGES,
     CONF_EXPAND_LIGHT_GROUPS,
     CONF_INCLUDE_CONFIG_IN_ATTRIBUTES,
@@ -974,10 +978,6 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
 
         self.initial_transition = data[CONF_INITIAL_TRANSITION]
         self._sleep_transition = data[CONF_SLEEP_TRANSITION]
-        color_temp_sensor = data.get(CONF_COLOR_TEMP_SENSOR)
-        self._color_temp_sensor = (
-            None if color_temp_sensor in (NONE_STR, None, "") else color_temp_sensor
-        )
         self._only_once = data[CONF_ONLY_ONCE]
         self._prefer_rgb_color = data[CONF_PREFER_RGB_COLOR]
         self._separate_turn_on_commands = data[CONF_SEPARATE_TURN_ON_COMMANDS]
@@ -1047,6 +1047,10 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
             brightness_mode=data[CONF_BRIGHTNESS_MODE],
             brightness_mode_time_dark=data[CONF_BRIGHTNESS_MODE_TIME_DARK],
             brightness_mode_time_light=data[CONF_BRIGHTNESS_MODE_TIME_LIGHT],
+            color_mode=data[CONF_COLOR_MODE],
+            color_mode_time_dark=data[CONF_COLOR_MODE_TIME_DARK],
+            color_mode_time_light=data[CONF_COLOR_MODE_TIME_LIGHT],
+            use_weather_adjustment=data[CONF_USE_WEATHER_ADJUSTMENT],
             timezone=zoneinfo.ZoneInfo(self.hass.config.time_zone),
         )
         _LOGGER.debug(
@@ -1237,7 +1241,6 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
         """Return the attributes of the switch."""
         extra_state_attributes: dict[str, Any] = {
             "configuration": self._config,
-            "color_temp_sensor": self._color_temp_sensor,
         }
         if not self.is_on:
             for key in self._settings:
@@ -1318,35 +1321,23 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
             force=False,
         )
 
-    def _apply_color_temp_sensor(self) -> None:
-        """Override color temp with external sensor if configured and sleep mode is off."""
-        if self.sleep_mode_switch.is_on:
-            return
-        if not self._color_temp_sensor:
-            return
-        state = self.hass.states.get(self._color_temp_sensor)
-        if state is None or state.state in ("unknown", "unavailable", "None"):
-            return
-        try:
-            cct = int(round(float(state.state)))
-            min_cct = self._sun_light_settings.min_color_temp
-            max_cct = self._sun_light_settings.max_color_temp
-            cct = clamp(cct, min_cct, max_cct)
-            self._settings["color_temp_kelvin"] = cct
-            self._settings["color_temp_mired"] = math.floor(1000000 / cct)
-            r, g, b = color_temperature_to_rgb(cct)
-            self._settings["rgb_color"] = (round(r), round(g), round(b))
-            xy = color_RGB_to_xy(r, g, b)
-            self._settings["xy_color"] = xy
-            self._settings["hs_color"] = color_xy_to_hs(*xy)
-        except (ValueError, TypeError) as err:
-            _LOGGER.debug(
-                "%s: Could not parse color_temp_sensor '%s' state '%s': %s",
-                self._name,
-                self._color_temp_sensor,
-                state.state,
-                err,
-            )
+    def register_update_listener(self, update_cb: CALLBACK_TYPE) -> CALLBACK_TYPE:
+        """Register a callback for when switch settings update."""
+        if not hasattr(self, "_update_listeners"):
+            self._update_listeners: list[CALLBACK_TYPE] = []
+        self._update_listeners.append(update_cb)
+
+        def _remove() -> None:
+            if update_cb in self._update_listeners:
+                self._update_listeners.remove(update_cb)
+
+        return _remove
+
+    def _notify_update_listeners(self) -> None:
+        """Notify registered listeners of updated settings."""
+        if hasattr(self, "_update_listeners"):
+            for listener in list(self._update_listeners):
+                listener()
 
     async def prepare_adaptation_data(
         self,
@@ -1386,11 +1377,16 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
             return None
 
         # The switch might be off and not have _settings set.
+        cloud_cover = (
+            self.manager.weather_coordinator.cloud_cover
+            if hasattr(self.manager, "weather_coordinator") and self.manager.weather_coordinator
+            else 0.0
+        )
         self._settings = self._sun_light_settings.get_settings(
             self.sleep_mode_switch.is_on,
             transition,
+            cloud_cover=cloud_cover,
         )
-        self._apply_color_temp_sensor()
 
         # Build service data.
         service_data: dict[str, Any] = {ATTR_ENTITY_ID: light}
@@ -1595,14 +1591,20 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
             force,
         )
         assert self.is_on
+        cloud_cover = (
+            self.manager.weather_coordinator.cloud_cover
+            if hasattr(self.manager, "weather_coordinator") and self.manager.weather_coordinator
+            else 0.0
+        )
         self._settings.update(
             self._sun_light_settings.get_settings(
                 self.sleep_mode_switch.is_on,
                 transition,
+                cloud_cover=cloud_cover,
             ),
         )
-        self._apply_color_temp_sensor()
         self.async_write_ha_state()
+        self._notify_update_listeners()
 
         if not force and self._only_once:
             return
@@ -1903,6 +1905,9 @@ class AdaptiveLightingManager:
         self.hass = hass
         self.lights: set[str] = set()
 
+        self.weather_coordinator = WeatherCoordinator(hass)
+        hass.async_create_task(self.weather_coordinator.async_start())
+
         # Tracks 'light.turn_off' service calls
         self.turn_off_event: dict[str, Event] = {}
         # Tracks 'light.turn_on' service calls
@@ -1988,6 +1993,8 @@ class AdaptiveLightingManager:
 
     def disable(self) -> None:
         """Disable listeners and pending manual-reset and transition timers."""
+        if hasattr(self, "weather_coordinator") and self.weather_coordinator:
+            self.weather_coordinator.stop()
         for remove in self.listener_removers:
             remove()
         for timer in self.auto_reset_manual_control_timers.values():

@@ -297,6 +297,10 @@ class SunLightSettings:
     brightness_mode_time_dark: datetime.timedelta
     brightness_mode_time_light: datetime.timedelta
     brightness_mode: Literal["default", "linear", "tanh"] = "default"
+    color_mode_time_dark: datetime.timedelta = datetime.timedelta(seconds=900)
+    color_mode_time_light: datetime.timedelta = datetime.timedelta(seconds=3600)
+    color_mode: Literal["default", "linear", "tanh"] = "default"
+    use_weather_adjustment: bool = True
     sunrise_offset: datetime.timedelta = datetime.timedelta()
     sunset_offset: datetime.timedelta = datetime.timedelta()
     timezone: datetime.tzinfo = UTC
@@ -395,8 +399,89 @@ class SunLightSettings:
             return self._brightness_pct_tanh(dt)
         return None
 
-    def color_temp_kelvin(self, sun_position: float) -> int:
+    def _color_temp_kelvin_tanh(
+        self,
+        dt: datetime.datetime,
+        cloud_cover: float = 0.0,
+    ) -> int:
+        """Calculate continuous circadian color temperature in Kelvin using smooth tanh transitions."""
+        ts_now = dt.timestamp()
+        sunrise = self.sun.sunrise(dt)
+        sunset = self.sun.sunset(dt)
+        ts_sunrise = sunrise.timestamp()
+        ts_sunset = sunset.timestamp()
+
+        dark_sec = max(300.0, self.color_mode_time_dark.total_seconds())
+        light_sec = max(300.0, self.color_mode_time_light.total_seconds())
+
+        # Dawn window: default ~2h (astronomical dawn), scaled by dark_sec
+        dawn_window = 7200.0 * (dark_sec / 2700.0)
+        ts_dawn = ts_sunrise - dawn_window
+
+        # Day ascent window: default ~1.5h post-sunrise, scaled by light_sec
+        day_ascent_window = 5400.0 * (light_sec / 3600.0)
+
+        # Evening golden hour window: starts before sunset, scaled by light_sec
+        gh_eve_window = 3300.0 * (light_sec / 3600.0)
+        ts_eve_start = ts_sunset - gh_eve_window
+
+        # Dusk window: default ~2h post-sunset, scaled by dark_sec
+        dusk_window = 7200.0 * (dark_sec / 2700.0)
+        ts_dusk_end = ts_sunset + dusk_window
+
+        # Check if we are in late-night dusk past midnight from the previous day
+        if ts_now < ts_sunrise:
+            prev_sunset = self.sun.sunset(dt - timedelta(days=1)).timestamp()
+            prev_dusk_end = prev_sunset + dusk_window
+            if ts_now < prev_dusk_end:
+                f_sun = 0.5 * (1.0 - math.tanh((ts_now - (prev_sunset - gh_eve_window * 0.3)) / (gh_eve_window * 0.35)))
+                f_dusk = 0.5 * (1.0 - math.tanh((ts_now - (prev_sunset + dusk_window * 0.48)) / (dusk_window * 0.26)))
+                factor = max(0.0, min(1.0, (0.28 + (1.0 - 0.28) * f_sun) * f_dusk))
+                cct = self.min_color_temp + factor * (self.max_color_temp - self.min_color_temp)
+                return int(round(clamp(cct, self.min_color_temp, self.max_color_temp)))
+
+        # 1. Deep night floor
+        if ts_now <= ts_dawn or ts_now >= ts_dusk_end:
+            factor = 0.0
+        # 2. Early Dawn Wakeup Ramp (ts_dawn -> ts_sunrise)
+        elif ts_now < ts_sunrise:
+            center = ts_dawn + (ts_sunrise - ts_dawn) * 0.45
+            slope = (ts_sunrise - ts_dawn) * 0.28
+            s = 0.5 * (math.tanh((ts_now - center) / slope) + 1.0)
+            factor = max(0.0, min(0.72, s * 0.72))
+        # 3. Morning Golden Hour Dip & Climb to Day
+        elif ts_now < ts_sunrise + day_ascent_window:
+            t_rel = (ts_now - ts_sunrise) / day_ascent_window
+            f_dip = 0.5 * (math.tanh((t_rel - 0.28) / 0.15) + 1.0)
+            c_morn = 0.72 - (0.72 - 0.36) * f_dip
+            target_day = (0.88 + (cloud_cover / 100.0) * 0.12) if self.use_weather_adjustment else 1.0
+            f_day = 0.5 * (math.tanh((t_rel - 0.65) / 0.18) + 1.0)
+            factor = max(0.35, min(1.0, c_morn * (1.0 - f_day) + target_day * f_day))
+        # 4. Midday Plateau across Solar Noon (Day ascent -> Evening Golden Hour start)
+        elif ts_now <= ts_eve_start:
+            target_day = (0.88 + (cloud_cover / 100.0) * 0.12) if self.use_weather_adjustment else 1.0
+            factor = min(1.0, target_day)
+        # 5. Evening Golden Hour & Extended Dusk Fade (ts_eve_start -> ts_dusk_end)
+        else:
+            target_day = (0.88 + (cloud_cover / 100.0) * 0.12) if self.use_weather_adjustment else 1.0
+            f_sun = 0.5 * (1.0 - math.tanh((ts_now - (ts_sunset - gh_eve_window * 0.3)) / (gh_eve_window * 0.35)))
+            f_dusk = 0.5 * (1.0 - math.tanh((ts_now - (ts_sunset + dusk_window * 0.48)) / (dusk_window * 0.26)))
+            factor = max(0.0, min(1.0, (0.28 + (target_day - 0.28) * f_sun) * f_dusk))
+
+        cct = self.min_color_temp + factor * (self.max_color_temp - self.min_color_temp)
+        return int(round(clamp(cct, self.min_color_temp, self.max_color_temp)))
+
+    def color_temp_kelvin(
+        self,
+        dt: datetime.datetime,
+        sun_position: float,
+        cloud_cover: float = 0.0,
+    ) -> int:
         """Calculate the color temperature in Kelvin."""
+        assert self.color_mode in ("default", "linear", "tanh")
+        if self.color_mode == "tanh":
+            return self._color_temp_kelvin_tanh(dt, cloud_cover)
+
         if sun_position > 0:
             delta = self.max_color_temp - self.min_color_temp
             ct = (delta * sun_position) + self.min_color_temp
@@ -414,6 +499,7 @@ class SunLightSettings:
         self,
         dt: datetime.datetime,
         is_sleep: bool,
+        cloud_cover: float = 0.0,
     ) -> dict[str, Any]:
         """Calculate the brightness and color."""
         sun_position = self.sun.sun_position(dt)
@@ -439,10 +525,10 @@ class SunLightSettings:
                 self.sleep_rgb_color,
                 sun_position,
             )
-            color_temp_kelvin = self.color_temp_kelvin(sun_position)
+            color_temp_kelvin = self.color_temp_kelvin(dt, sun_position, cloud_cover)
             force_rgb_color = True
         else:
-            color_temp_kelvin = self.color_temp_kelvin(sun_position)
+            color_temp_kelvin = self.color_temp_kelvin(dt, sun_position, cloud_cover)
             r, g, b = color_temperature_to_rgb(color_temp_kelvin)
             rgb_color = (round(r), round(g), round(b))
         # backwards compatibility for versions < 1.3.1 - see #403
@@ -464,13 +550,14 @@ class SunLightSettings:
         self,
         is_sleep: bool,
         transition: float | None,
+        cloud_cover: float = 0.0,
     ) -> dict[str, float | int | tuple[float, float] | tuple[float, float, float]]:
         """Get all light settings.
 
         Calculating all values takes <0.5ms.
         """
         dt = utcnow() + timedelta(seconds=transition or 0)
-        return self.brightness_and_color(dt, is_sleep)
+        return self.brightness_and_color(dt, is_sleep, cloud_cover)
 
 
 def find_a_b(x1: float, x2: float, y1: float, y2: float) -> tuple[float, float]:
