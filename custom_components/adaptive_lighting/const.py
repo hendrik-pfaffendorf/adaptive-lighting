@@ -229,6 +229,41 @@ DOCS[CONF_COLOR_MODE_TIME_LIGHT] = (
     "(Ignored if `color_mode='default'`) The duration in seconds to ramp up/down "
     "the color temperature after/before sunrise/sunset. 📈📉."
 )
+
+CONF_DAWN_DURATION, DEFAULT_DAWN_DURATION = "dawn_duration", 5400
+DOCS[CONF_DAWN_DURATION] = (
+    "Duration of the 1st S-curve rise from night floor to blue hour crest in seconds (e.g., 5400s = 90min). 🌅"
+)
+
+CONF_BLUE_HOUR_KELVIN, DEFAULT_BLUE_HOUR_KELVIN = "blue_hour_kelvin", 3750
+DOCS[CONF_BLUE_HOUR_KELVIN] = (
+    "Target color temperature in Kelvin reached at the blue hour crest before sunrise dip. ❄️"
+)
+
+CONF_BLUE_HOUR_DURATION, DEFAULT_BLUE_HOUR_DURATION = "blue_hour_duration", 2700
+DOCS[CONF_BLUE_HOUR_DURATION] = (
+    "Duration of the blue hour transition from crest down to sunrise golden dip in seconds (default 2700s = 45min). ⏰"
+)
+
+CONF_SUNRISE_DIP_PCT, DEFAULT_SUNRISE_DIP_PCT = "sunrise_dip_pct", 30
+DOCS[CONF_SUNRISE_DIP_PCT] = (
+    "Percentage of color temperature range to dip down to right at sunrise for golden hour (e.g., 30% ≈ 3,050 K). 🥞"
+)
+
+CONF_DAY_ASCENT_DURATION, DEFAULT_DAY_ASCENT_DURATION = "day_ascent_duration", 7200
+DOCS[CONF_DAY_ASCENT_DURATION] = (
+    "Duration in seconds to transition from sunrise golden dip to 100% full daylight plateau (e.g., 7200s = 2 hours). ☀️"
+)
+
+CONF_DUSK_DURATION, DEFAULT_DUSK_DURATION = "dusk_duration", 10800
+DOCS[CONF_DUSK_DURATION] = (
+    "Duration of the evening S-curve descent in seconds from sunset down to the warm night floor (e.g., 10800s = 3 hours). 🌇"
+)
+
+CONF_SUNSET_DESCENT_OFFSET, DEFAULT_SUNSET_DESCENT_OFFSET = "sunset_descent_offset", 900
+DOCS[CONF_SUNSET_DESCENT_OFFSET] = (
+    "Delay in seconds after sunset before starting the evening descent (default 900s = 15min). 🌆"
+)
 CONF_USE_WEATHER_ADJUSTMENT, DEFAULT_USE_WEATHER_ADJUSTMENT = (
     "use_weather_adjustment",
     True,
@@ -456,6 +491,13 @@ VALIDATION_TUPLES: list[tuple[str, Any, Any]] = [
     ),
     (CONF_COLOR_MODE_TIME_DARK, DEFAULT_COLOR_MODE_TIME_DARK, int),
     (CONF_COLOR_MODE_TIME_LIGHT, DEFAULT_COLOR_MODE_TIME_LIGHT, int),
+    (CONF_DAWN_DURATION, DEFAULT_DAWN_DURATION, int_between(300, 28800)),
+    (CONF_BLUE_HOUR_KELVIN, DEFAULT_BLUE_HOUR_KELVIN, int_between(1500, 8000)),
+    (CONF_BLUE_HOUR_DURATION, DEFAULT_BLUE_HOUR_DURATION, int_between(300, 7200)),
+    (CONF_SUNRISE_DIP_PCT, DEFAULT_SUNRISE_DIP_PCT, int_between(0, 100)),
+    (CONF_DAY_ASCENT_DURATION, DEFAULT_DAY_ASCENT_DURATION, int_between(300, 28800)),
+    (CONF_DUSK_DURATION, DEFAULT_DUSK_DURATION, int_between(1800, 43200)),
+    (CONF_SUNSET_DESCENT_OFFSET, DEFAULT_SUNSET_DESCENT_OFFSET, int_between(0, 7200)),
     (CONF_USE_WEATHER_ADJUSTMENT, DEFAULT_USE_WEATHER_ADJUSTMENT, bool),
     (CONF_TAKE_OVER_CONTROL, DEFAULT_TAKE_OVER_CONTROL, bool),
     (
@@ -529,6 +571,11 @@ EXTRA_VALIDATION: dict[str, tuple[Any, Any]] = {
     CONF_BRIGHTNESS_MODE_TIME_DARK: (cv.time_period, timedelta_as_int),
     CONF_COLOR_MODE_TIME_LIGHT: (cv.time_period, timedelta_as_int),
     CONF_COLOR_MODE_TIME_DARK: (cv.time_period, timedelta_as_int),
+    CONF_DAWN_DURATION: (cv.time_period, timedelta_as_int),
+    CONF_BLUE_HOUR_DURATION: (cv.time_period, timedelta_as_int),
+    CONF_DAY_ASCENT_DURATION: (cv.time_period, timedelta_as_int),
+    CONF_DUSK_DURATION: (cv.time_period, timedelta_as_int),
+    CONF_SUNSET_DESCENT_OFFSET: (cv.time_period, timedelta_as_int),
 }
 
 
