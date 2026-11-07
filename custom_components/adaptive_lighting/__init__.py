@@ -110,7 +110,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
 
     undo_listener = config_entry.add_update_listener(async_update_options)
     data[config_entry.entry_id] = {UNDO_UPDATE_LISTENER: undo_listener}
-    await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
+    await hass.config_entries.async_forward_entry_setups(config_entry, ["switch"])
+    await hass.config_entries.async_forward_entry_setups(config_entry, ["sensor"])
 
     return True
 
@@ -122,9 +123,9 @@ async def async_update_options(hass: HomeAssistant, config_entry: ConfigEntry) -
 
 async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_forward_entry_unload(
+    unload_ok = await hass.config_entries.async_unload_platforms(
         config_entry,
-        "switch",
+        PLATFORMS,
     )
     data = hass.data[DOMAIN]
     data[config_entry.entry_id][UNDO_UPDATE_LISTENER]()

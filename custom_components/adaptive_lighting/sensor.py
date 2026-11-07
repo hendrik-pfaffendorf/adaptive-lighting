@@ -6,13 +6,14 @@ import logging
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_NAME, DOMAIN, ICON_BRIGHTNESS, ICON_COLOR_TEMP, SWITCH_DOMAIN
+from .const import CONF_NAME, DOMAIN, ICON_BRIGHTNESS, ICON_COLOR_TEMP
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,7 +25,10 @@ async def async_setup_entry(
 ) -> None:
     """Set up Adaptive Lighting sensors."""
     data = hass.data[DOMAIN][config_entry.entry_id]
-    switch = data[SWITCH_DOMAIN]
+    switch = data.get(SWITCH_DOMAIN)
+    if switch is None:
+        _LOGGER.error("AdaptiveSwitch instance not found for entry %s", config_entry.entry_id)
+        return
 
     color_sensor = AdaptiveLightingColorTempSensor(hass, config_entry, switch)
     brightness_sensor = AdaptiveLightingBrightnessSensor(hass, config_entry, switch)

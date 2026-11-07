@@ -16,6 +16,7 @@ ICON_COLOR_TEMP = "mdi:sun-thermometer"
 ICON_SLEEP = "mdi:sleep"
 
 DOMAIN = "adaptive_lighting"
+SWITCH_DOMAIN = "switch"
 
 
 class TakeOverControlMode(Enum):
