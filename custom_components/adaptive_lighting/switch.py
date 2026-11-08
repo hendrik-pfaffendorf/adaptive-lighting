@@ -201,9 +201,9 @@ _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(seconds=10)
 
 # Consider it a significant change when attribute changes more than
-BRIGHTNESS_CHANGE = 25  # ≈10% of total range
-COLOR_TEMP_CHANGE = 100  # ≈3% of total range (2000-6500)
-RGB_REDMEAN_CHANGE = 80  # ≈10% of total range
+BRIGHTNESS_CHANGE = 10  # ≈4% of total range (catches dimming even at low min_brightness)
+COLOR_TEMP_CHANGE = 70  # ≈1.5% of total range (2000-6500)
+RGB_REDMEAN_CHANGE = 40  # ≈5% of total range
 
 
 # Keep a short domain version for the context instances (which can only be 36 chars)
@@ -479,21 +479,37 @@ async def handle_set_manual_control_service(
 
         if manual_attributes:
             for light in all_lights:
+                old_manual = switch.manager.get_manual_control_attributes(light)
                 switch.manager.set_manual_control_attributes(
                     light,
                     manual_attributes,
                 )
-                switch.fire_manual_control_event(light, service_call.context)
+                if old_manual != manual_attributes:
+                    switch.fire_manual_control_event(light, service_call.context)
         else:
-            switch.manager.reset(*all_lights)
-            if switch.is_on:
+            lights_to_adapt: list[str] = []
+            for light in all_lights:
+                was_manual = switch.manager.get_manual_control_attributes(light).has_any()
+                timer = switch.manager.transition_timers.get(light)
+                is_transitioning = timer is not None and timer.is_running()
+                if not was_manual and is_transitioning:
+                    _LOGGER.debug(
+                        "%s: Light '%s' already has manual_control=False and is currently"
+                        " transitioning; skipping duplicate reset/adapt.",
+                        switch._name,
+                        light,
+                    )
+                    continue
+                switch.manager.reset(light)
+                lights_to_adapt.append(light)
+            if switch.is_on and lights_to_adapt:
                 context = switch.create_context(
                     "service",
                     parent=service_call.context,
                 )
                 await switch._update_attrs_and_maybe_adapt_lights(  # pylint: disable=protected-access
                     context=context,
-                    lights=all_lights,
+                    lights=lights_to_adapt,
                     transition=switch.initial_transition,
                     force=True,
                 )
@@ -727,9 +743,10 @@ def _supported_features(hass: HomeAssistant, light: str) -> set[str]:
 # All comparisons should be done with RGB since
 # converting anything to color temp is inaccurate.
 def _convert_attributes(attributes: dict[str, Any]) -> dict[str, Any]:
-    if ATTR_RGB_COLOR in attributes:
+    if attributes.get(ATTR_RGB_COLOR) is not None:
         return attributes
 
+    attributes = dict(attributes)
     rgb = None
     if (color := attributes.get(ATTR_COLOR_TEMP_KELVIN)) is not None:
         rgb = color_temperature_to_rgb(color)
@@ -750,7 +767,7 @@ def _add_missing_attributes(
     new_attributes: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if not any(
-        attr in old_attributes and attr in new_attributes
+        old_attributes.get(attr) is not None and new_attributes.get(attr) is not None
         for attr in [ATTR_COLOR_TEMP_KELVIN, ATTR_RGB_COLOR]
     ):
         old_attributes = _convert_attributes(old_attributes)
@@ -1540,6 +1557,7 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
                 **self.manager.last_service_data.get(light, {}),
                 **service_data,
             }
+            self.manager.start_transition_timer(light)
             await self.hass.services.async_call(
                 LIGHT_DOMAIN,
                 SERVICE_TURN_ON,
@@ -1957,6 +1975,8 @@ class AdaptiveLightingManager:
 
         # Track light transitions
         self.transition_timers: dict[str, _AsyncSingleShotTimer] = {}
+        # Track debounced checks for untracked state changes
+        self.untracked_change_timers: dict[str, _AsyncSingleShotTimer] = {}
 
         # Track _execute_cancellable_adaptation_calls tasks
         self.adaptation_tasks: set[asyncio.Task[None]] = set()
@@ -2013,6 +2033,9 @@ class AdaptiveLightingManager:
         for timer in self.transition_timers.values():
             timer.cancel()
         self.transition_timers.clear()
+        for timer in self.untracked_change_timers.values():
+            timer.cancel()
+        self.untracked_change_timers.clear()
 
     def set_proactively_adapting(self, context_id: str, entity_id: str) -> None:
         """Declare the adaptation with context_id as proactively adapting,
@@ -2415,7 +2438,7 @@ class AdaptiveLightingManager:
             timer.start()
 
     def start_transition_timer(self, light: str) -> None:
-        """Mark a light as manually controlled."""
+        """Start or restart the transition guard timer for a light."""
         last_service_data = self.last_service_data.get(light)
         if last_service_data is None:
             _LOGGER.debug(
@@ -2424,28 +2447,100 @@ class AdaptiveLightingManager:
             )
             return
 
-        last_transition = last_service_data.get(ATTR_TRANSITION)
-        if not last_transition:
-            _LOGGER.debug(
-                "No transition in last adapt for light %s, not starting timer.",
-                light,
-            )
-            return
+        if untracked_timer := self.untracked_change_timers.pop(light, None):
+            untracked_timer.cancel()
+
+        last_transition = float(last_service_data.get(ATTR_TRANSITION) or 0.0)
+        transition_delay = max(last_transition + 0.75, 1.5)
 
         _LOGGER.debug(
-            "Start transition timer of %s seconds for light %s",
+            "Start transition timer of %s seconds (transition=%s) for light %s",
+            transition_delay,
             last_transition,
             light,
         )
 
         async def reset() -> None:
-            # Called when the timer expires, doesn't need to do anything
             _LOGGER.debug(
                 "Transition finished for light %s",
                 light,
             )
+            if not is_on(self.hass, light) or self.last_service_data.get(light) is None:
+                return
+            switches = _switches_with_lights(
+                self.hass,
+                [light],
+                expand_light_groups=False,
+            )
+            for switch in switches:
+                if not switch.is_on:
+                    continue
+                if self.get_adaption_control_attributes(switch, light).has_none():
+                    continue
+                await self.update_manually_controlled_from_untracked_change(
+                    switch,
+                    light,
+                    False,
+                    switch.create_context("transition_finished"),
+                )
 
-        self._handle_timer(light, self.transition_timers, last_transition, reset)
+        self._handle_timer(light, self.transition_timers, transition_delay, reset)
+
+    def _get_hue_group_members(self, light: str) -> list[str]:
+        """Return member entity_ids if 'light' is a Hue grouped light."""
+        state = self.hass.states.get(light)
+        if state is None or not state.attributes.get("is_hue_group"):
+            return []
+        members = state.attributes.get(ATTR_ENTITY_ID)
+        if isinstance(members, (list, tuple, set)):
+            return list(members)
+        return []
+
+    def _parent_hue_groups(self, entity_id: str) -> list[str]:
+        """Return tracked Hue group lights that contain 'entity_id' as a member."""
+        return [
+            light
+            for light in self.lights
+            if entity_id in self._get_hue_group_members(light)
+        ]
+
+    def schedule_untracked_change_check(
+        self,
+        light: str,
+        delay: float,
+        context: Context,
+    ) -> None:
+        """Schedule a debounced check for untracked manual changes on 'light'."""
+        if self.last_service_data.get(light) is None:
+            return
+        if (timer := self.transition_timers.get(light)) and timer.is_running():
+            return
+
+        async def _check() -> None:
+            if not is_on(self.hass, light):
+                return
+            if self.last_service_data.get(light) is None:
+                return
+            if (t := self.transition_timers.get(light)) and t.is_running():
+                return
+            switches = _switches_with_lights(
+                self.hass,
+                [light],
+                expand_light_groups=False,
+            )
+            for switch in switches:
+                if not switch.is_on:
+                    continue
+                if self.get_adaption_control_attributes(switch, light).has_none():
+                    continue
+                await self.update_manually_controlled_from_untracked_change(
+                    switch,
+                    light,
+                    False,
+                    context,
+                )
+
+        self._handle_timer(light, self.untracked_change_timers, delay, _check)
 
     def set_auto_reset_manual_control_times(
         self,
@@ -2689,6 +2784,8 @@ class AdaptiveLightingManager:
                     timer.cancel()
             self.our_last_state_on_change.pop(light, None)
             self.last_service_data.pop(light, None)
+            if untracked_timer := self.untracked_change_timers.pop(light, None):
+                untracked_timer.cancel()
             self.cancel_ongoing_adaptation_calls(light)
         if reset_manual_control:
             self._schedule_manual_control_state_update(*lights)
@@ -2701,6 +2798,8 @@ class AdaptiveLightingManager:
             self.clear_proactively_adapting(light)
             if timer := self.transition_timers.pop(light, None):
                 timer.cancel()
+            if untracked_timer := self.untracked_change_timers.pop(light, None):
+                untracked_timer.cancel()
             if task := self.sleep_tasks.pop(light, None):
                 task.cancel()
             for records in (
@@ -2734,7 +2833,14 @@ class AdaptiveLightingManager:
         service_data = event.data[ATTR_SERVICE_DATA]
         entity_ids = self._get_entity_list(service_data)
 
-        if not any(eid in self.lights for eid in entity_ids):
+        has_direct_lights = any(eid in self.lights for eid in entity_ids)
+        parent_groups_for_members: set[str] = set()
+        if service == SERVICE_TURN_ON and get_light_control_attributes(service_data):
+            for eid in entity_ids:
+                if eid not in self.lights:
+                    parent_groups_for_members.update(self._parent_hue_groups(eid))
+
+        if not has_direct_lights and not parent_groups_for_members:
             return
 
         def off(eid: str, event: Event) -> None:
@@ -2797,7 +2903,11 @@ class AdaptiveLightingManager:
                 event.context.id,
             )
             for eid in entity_ids:
-                await on(eid, event)
+                if eid in self.lights:
+                    await on(eid, event)
+            for group_light in sorted(parent_groups_for_members):
+                if group_light not in entity_ids:
+                    await on(group_light, event)
 
         elif service == SERVICE_TOGGLE:
             _LOGGER.debug(
@@ -2820,9 +2930,6 @@ class AdaptiveLightingManager:
     ) -> None:
         """Track 'state_changed' events."""
         entity_id = event.data.get(ATTR_ENTITY_ID, "")
-        if entity_id not in self.lights:
-            return
-
         old_state = event.data.get("old_state")
         new_state = event.data.get("new_state")
 
@@ -2842,6 +2949,36 @@ class AdaptiveLightingManager:
             if old_state is not None and old_state.state == STATE_OFF
             else None
         )
+
+        if entity_id not in self.lights:
+            parent_groups = self._parent_hue_groups(entity_id)
+            if not parent_groups:
+                return
+            if (
+                old_on
+                and new_on
+                and not is_our_context(new_on.context)
+                and not self.is_proactively_adapting(new_on.context.id)
+            ):
+                for group_light in parent_groups:
+                    self.schedule_untracked_change_check(
+                        group_light,
+                        0.35,
+                        new_on.context,
+                    )
+            elif (
+                old_on
+                and new_off
+                and not is_our_context(event.context)
+                and not self.is_proactively_adapting(event.context.id)
+            ):
+                for group_light in parent_groups:
+                    self.schedule_untracked_change_check(
+                        group_light,
+                        0.6,
+                        event.context,
+                    )
+            return
         if new_on:
             _LOGGER.debug(
                 "Detected a '%s' 'state_changed' event: '%s' with context.id='%s'",
@@ -2892,6 +3029,17 @@ class AdaptiveLightingManager:
                 new_on.context.id,
             )
 
+        if old_on and new_on:
+            if (
+                not is_our_context(new_on.context)
+                and not self.is_proactively_adapting(new_on.context.id)
+            ):
+                self.schedule_untracked_change_check(
+                    entity_id,
+                    0.35,
+                    new_on.context,
+                )
+
         if old_on and not new_on:
             # Availability loss invalidates pending commands, not manual state.
             self.cancel_ongoing_adaptation_calls(entity_id)
@@ -2914,10 +3062,13 @@ class AdaptiveLightingManager:
                 event.context.id,
             )
 
-            if self.is_proactively_adapting(event.context.id):
+            if self.is_proactively_adapting(event.context.id) or is_our_context(
+                event.context,
+                "service",
+            ):
                 _LOGGER.debug(
                     "Skipping responding to 'off' → 'on' event for '%s' with context.id='%s' because"
-                    " we are already proactively adapting",
+                    " we are already proactively adapting or handling an apply service call",
                     entity_id,
                     event.context.id,
                 )
@@ -3047,24 +3198,72 @@ class AdaptiveLightingManager:
         # can happen e.g. using zigbee2mqtt with 'report: false' in device settings.
         await async_update_entity(self.hass, light)
         refreshed_state = self.hass.states.get(light)
-        assert refreshed_state is not None
+        if refreshed_state is None or refreshed_state.state != STATE_ON:
+            return LightControlAttributes.NONE
         self.consume_pending_manual_control_state(light, refreshed_state)
 
         manual_control = self.get_manual_control_attributes(light)
         manual_control_states = self.last_manual_control_state.get(light, {})
         changed_attributes = LightControlAttributes.NONE
+
+        member_ids = self._get_hue_group_members(light)
+        member_states = [
+            st
+            for mid in member_ids
+            if (st := self.hass.states.get(mid)) is not None
+        ]
+        on_member_states = [st for st in member_states if st.state == STATE_ON]
+        off_member_states = [st for st in member_states if st.state == STATE_OFF]
+
+        if off_member_states and not manual_control.has_any():
+            _LOGGER.debug(
+                "%s: Hue group '%s' is ON but member(s) %s are OFF; marking manually controlled (context.id=%s)",
+                switch._name,
+                light,
+                [st.entity_id for st in off_member_states],
+                context.id,
+            )
+            changed_attributes |= LightControlAttributes.ALL
+
         for attribute in LightControlAttributes:
+            if attribute in changed_attributes:
+                continue
+            if (
+                attribute in manual_control
+                and light not in self.auto_reset_manual_control_times
+            ):
+                continue
             old_attributes = (
                 manual_control_states.get(attribute, last_service_data)
                 if attribute in manual_control
                 else last_service_data
             )
-            changed_attributes |= attribute & _attributes_have_changed(
-                old_attributes=dict(old_attributes),
-                new_attributes=refreshed_state.attributes,
-                light=light,
-                context=context,
-            )
+            if on_member_states and attribute not in manual_control:
+                for member_state in on_member_states:
+                    member_old = dict(old_attributes)
+                    if (
+                        (old_k := member_old.get(ATTR_COLOR_TEMP_KELVIN)) is not None
+                        and (min_k := member_state.attributes.get("min_color_temp_kelvin"))
+                        is not None
+                        and (max_k := member_state.attributes.get("max_color_temp_kelvin"))
+                        is not None
+                    ):
+                        member_old[ATTR_COLOR_TEMP_KELVIN] = clamp(old_k, min_k, max_k)
+                    changed_attributes |= attribute & _attributes_have_changed(
+                        old_attributes=member_old,
+                        new_attributes=member_state.attributes,
+                        light=member_state.entity_id,
+                        context=context,
+                    )
+                    if attribute in changed_attributes:
+                        break
+            else:
+                changed_attributes |= attribute & _attributes_have_changed(
+                    old_attributes=dict(old_attributes),
+                    new_attributes=refreshed_state.attributes,
+                    light=light,
+                    context=context,
+                )
         if changed_attributes:
             self.update_manual_control_state(
                 light,
