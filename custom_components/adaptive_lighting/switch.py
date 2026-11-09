@@ -746,6 +746,59 @@ def _supported_features(hass: HomeAssistant, light: str) -> set[str]:
 
 # All comparisons should be done with RGB since
 # converting anything to color temp is inaccurate.
+def _planckian_xy(kelvin: float) -> tuple[float, float]:
+    """Approximate CIE 1931 (x, y) on the Planckian locus (Kang et al., 2002)."""
+    t = max(1000.0, min(25000.0, float(kelvin)))
+    if t <= 4000.0:
+        x = (
+            -0.2661239e9 / (t**3)
+            - 0.2343589e6 / (t**2)
+            + 0.8776956e3 / t
+            + 0.179910
+        )
+    else:
+        x = (
+            -3.0258469e9 / (t**3)
+            + 2.1070379e6 / (t**2)
+            + 0.2226347e3 / t
+            + 0.240390
+        )
+
+    if t <= 2222.0:
+        y = (
+            -1.1063814 * (x**3)
+            - 1.34811020 * (x**2)
+            + 2.18555832 * x
+            - 0.20219683
+        )
+    elif t <= 4000.0:
+        y = (
+            -0.9549476 * (x**3)
+            - 1.37418593 * (x**2)
+            + 2.09137015 * x
+            - 0.16748867
+        )
+    else:
+        y = (
+            3.0817580 * (x**3)
+            - 5.87338670 * (x**2)
+            + 3.75112997 * x
+            - 0.37001483
+        )
+    return (x, y)
+
+
+def _is_xy_mode(attributes: dict[str, Any]) -> bool:
+    """Return True if the attributes represent a light in CIE xy color mode."""
+    if attributes.get("color_mode") == ColorMode.XY:
+        return True
+    return (
+        attributes.get(ATTR_XY_COLOR) is not None
+        and attributes.get(ATTR_COLOR_TEMP_KELVIN) is None
+        and attributes.get(ATTR_RGB_COLOR) is None
+    )
+
+
 def _convert_attributes(attributes: dict[str, Any]) -> dict[str, Any]:
     if attributes.get(ATTR_RGB_COLOR) is not None:
         return attributes
@@ -766,16 +819,61 @@ def _convert_attributes(attributes: dict[str, Any]) -> dict[str, Any]:
     return attributes
 
 
+def _convert_attributes_pair(
+    old_attributes: dict[str, Any],
+    new_attributes: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Convert a pair of attribute dicts to RGB in a consistent color space.
+
+    Home Assistant's ``color_temperature_to_rgb`` (Tanner Helland) and
+    ``color_xy_to_RGB`` (CIE 1931 XYZ -> sRGB with D65 white point) produce
+    significantly different RGB values for the exact same physical color
+    temperature (e.g., redmean > 110 at 2050 K). When comparing a
+    ``color_temp_kelvin`` target against a light reporting ``xy`` color mode,
+    project the Kelvin temperature onto the Planckian locus and convert both
+    through ``color_xy_to_RGB`` so they share the same white point.
+    """
+    old_ct = old_attributes.get(ATTR_COLOR_TEMP_KELVIN)
+    new_ct = new_attributes.get(ATTR_COLOR_TEMP_KELVIN)
+
+    if old_ct is not None and new_ct is None and _is_xy_mode(new_attributes):
+        old_conv = dict(old_attributes)
+        new_conv = dict(new_attributes)
+        old_conv[ATTR_RGB_COLOR] = color_xy_to_RGB(*_planckian_xy(old_ct))
+        if (xy := new_attributes.get(ATTR_XY_COLOR)) is not None:
+            new_conv[ATTR_RGB_COLOR] = color_xy_to_RGB(*xy)
+        return old_conv, new_conv
+
+    if new_ct is not None and old_ct is None and _is_xy_mode(old_attributes):
+        old_conv = dict(old_attributes)
+        new_conv = dict(new_attributes)
+        if (xy := old_attributes.get(ATTR_XY_COLOR)) is not None:
+            old_conv[ATTR_RGB_COLOR] = color_xy_to_RGB(*xy)
+        new_conv[ATTR_RGB_COLOR] = color_xy_to_RGB(*_planckian_xy(new_ct))
+        return old_conv, new_conv
+
+    return _convert_attributes(old_attributes), _convert_attributes(new_attributes)
+
+
 def _add_missing_attributes(
     old_attributes: dict[str, Any],
     new_attributes: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    if not any(
+    old_ct = old_attributes.get(ATTR_COLOR_TEMP_KELVIN)
+    new_ct = new_attributes.get(ATTR_COLOR_TEMP_KELVIN)
+    is_ct_xy_pair = (
+        old_ct is not None and new_ct is None and _is_xy_mode(new_attributes)
+    ) or (
+        new_ct is not None and old_ct is None and _is_xy_mode(old_attributes)
+    )
+    if is_ct_xy_pair or not any(
         old_attributes.get(attr) is not None and new_attributes.get(attr) is not None
         for attr in [ATTR_COLOR_TEMP_KELVIN, ATTR_RGB_COLOR]
     ):
-        old_attributes = _convert_attributes(old_attributes)
-        new_attributes = _convert_attributes(new_attributes)
+        old_attributes, new_attributes = _convert_attributes_pair(
+            old_attributes,
+            new_attributes,
+        )
 
     return old_attributes, new_attributes
 
@@ -823,8 +921,10 @@ def _has_color_mode_changed(
     if old_mode is not None and new_mode is not None and old_mode != new_mode:
         # Convert both to RGB to check if the color actually changed significantly,
         # or if this is just an alternative coordinate representation (e.g., Hue reporting xy for color_temp).
-        old_converted = _convert_attributes(old_attributes)
-        new_converted = _convert_attributes(new_attributes)
+        old_converted, new_converted = _convert_attributes_pair(
+            old_attributes,
+            new_attributes,
+        )
         old_rgb = old_converted.get(ATTR_RGB_COLOR)
         new_rgb = new_converted.get(ATTR_RGB_COLOR)
         if old_rgb is not None and new_rgb is not None:
