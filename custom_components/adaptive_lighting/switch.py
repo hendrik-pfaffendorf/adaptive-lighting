@@ -821,6 +821,36 @@ def _has_color_mode_changed(
 
     # Check if mode changed
     if old_mode is not None and new_mode is not None and old_mode != new_mode:
+        # Convert both to RGB to check if the color actually changed significantly,
+        # or if this is just an alternative coordinate representation (e.g., Hue reporting xy for color_temp).
+        old_converted = _convert_attributes(old_attributes)
+        new_converted = _convert_attributes(new_attributes)
+        old_rgb = old_converted.get(ATTR_RGB_COLOR)
+        new_rgb = new_converted.get(ATTR_RGB_COLOR)
+        if old_rgb is not None and new_rgb is not None:
+            redmean_change = color_difference_redmean(old_rgb, new_rgb)
+            if redmean_change > RGB_REDMEAN_CHANGE:
+                _LOGGER.debug(
+                    "Light mode of %s changed from %s to %s with significant color change (redmean=%s > %s), context.id='%s'",
+                    light,
+                    old_mode,
+                    new_mode,
+                    redmean_change,
+                    RGB_REDMEAN_CHANGE,
+                    context.id,
+                )
+                return True
+            _LOGGER.debug(
+                "Light mode of %s changed from %s to %s but color difference is within tolerance (redmean=%s <= %s), context.id='%s'",
+                light,
+                old_mode,
+                new_mode,
+                redmean_change,
+                RGB_REDMEAN_CHANGE,
+                context.id,
+            )
+            return False
+
         _LOGGER.debug(
             "Light mode of %s changed from %s to %s with context.id='%s'",
             light,
