@@ -189,7 +189,7 @@ DOCS[CONF_MAX_SUNSET_TIME] = (
 CONF_BRIGHTNESS_MODE, DEFAULT_BRIGHTNESS_MODE = "brightness_mode", "default"
 DOCS[CONF_BRIGHTNESS_MODE] = (
     "Brightness mode to use. Possible values are `default`, `linear`, and `tanh` "
-    "(uses `brightness_mode_time_dark` and `brightness_mode_time_light`). 📈"
+    "(uses sunrise and sunset light/dark ramp durations). 📈"
 )
 CONF_BRIGHTNESS_MODE_TIME_DARK, DEFAULT_BRIGHTNESS_MODE_TIME_DARK = (
     "brightness_mode_time_dark",
@@ -206,6 +206,38 @@ CONF_BRIGHTNESS_MODE_TIME_LIGHT, DEFAULT_BRIGHTNESS_MODE_TIME_LIGHT = (
 DOCS[CONF_BRIGHTNESS_MODE_TIME_LIGHT] = (
     "(Ignored if `brightness_mode='default'`) The duration in seconds to ramp up/down "
     "the brightness after/before sunrise/sunset. 📈📉."
+)
+CONF_BRIGHTNESS_MODE_TIME_DARK_SUNRISE, DEFAULT_BRIGHTNESS_MODE_TIME_DARK_SUNRISE = (
+    "brightness_mode_time_dark_sunrise",
+    10000,
+)
+DOCS[CONF_BRIGHTNESS_MODE_TIME_DARK_SUNRISE] = (
+    "(Used in `brightness_mode='tanh'` or `'linear'`) Duration in seconds before sunrise where "
+    "brightness begins ramping up from `min_brightness` (e.g. 10000s ≈ 167min). 🌅"
+)
+CONF_BRIGHTNESS_MODE_TIME_LIGHT_SUNRISE, DEFAULT_BRIGHTNESS_MODE_TIME_LIGHT_SUNRISE = (
+    "brightness_mode_time_light_sunrise",
+    3600,
+)
+DOCS[CONF_BRIGHTNESS_MODE_TIME_LIGHT_SUNRISE] = (
+    "(Used in `brightness_mode='tanh'` or `'linear'`) Duration in seconds after sunrise when "
+    "brightness reaches `max_brightness` (e.g. 3600s = 60min). ☀️"
+)
+CONF_BRIGHTNESS_MODE_TIME_LIGHT_SUNSET, DEFAULT_BRIGHTNESS_MODE_TIME_LIGHT_SUNSET = (
+    "brightness_mode_time_light_sunset",
+    3600,
+)
+DOCS[CONF_BRIGHTNESS_MODE_TIME_LIGHT_SUNSET] = (
+    "(Used in `brightness_mode='tanh'` or `'linear'`) Duration in seconds before sunset where "
+    "brightness begins ramping down from `max_brightness` (e.g. 3600s = 60min). 🌆"
+)
+CONF_BRIGHTNESS_MODE_TIME_DARK_SUNSET, DEFAULT_BRIGHTNESS_MODE_TIME_DARK_SUNSET = (
+    "brightness_mode_time_dark_sunset",
+    15000,
+)
+DOCS[CONF_BRIGHTNESS_MODE_TIME_DARK_SUNSET] = (
+    "(Used in `brightness_mode='tanh'` or `'linear'`) Duration in seconds after sunset to "
+    "reach `min_brightness` (e.g. 15000s = 250min). 🌇"
 )
 
 CONF_COLOR_MODE, DEFAULT_COLOR_MODE = "color_mode", "default"
@@ -470,6 +502,26 @@ VALIDATION_TUPLES: list[tuple[str, Any, Any]] = [
     (CONF_BRIGHTNESS_MODE_TIME_DARK, DEFAULT_BRIGHTNESS_MODE_TIME_DARK, int),
     (CONF_BRIGHTNESS_MODE_TIME_LIGHT, DEFAULT_BRIGHTNESS_MODE_TIME_LIGHT, int),
     (
+        CONF_BRIGHTNESS_MODE_TIME_DARK_SUNRISE,
+        DEFAULT_BRIGHTNESS_MODE_TIME_DARK_SUNRISE,
+        int,
+    ),
+    (
+        CONF_BRIGHTNESS_MODE_TIME_LIGHT_SUNRISE,
+        DEFAULT_BRIGHTNESS_MODE_TIME_LIGHT_SUNRISE,
+        int,
+    ),
+    (
+        CONF_BRIGHTNESS_MODE_TIME_LIGHT_SUNSET,
+        DEFAULT_BRIGHTNESS_MODE_TIME_LIGHT_SUNSET,
+        int,
+    ),
+    (
+        CONF_BRIGHTNESS_MODE_TIME_DARK_SUNSET,
+        DEFAULT_BRIGHTNESS_MODE_TIME_DARK_SUNSET,
+        int,
+    ),
+    (
         CONF_COLOR_MODE,
         DEFAULT_COLOR_MODE,
         selector.SelectSelector(  # type: ignore[arg-type]
@@ -558,6 +610,10 @@ EXTRA_VALIDATION: dict[str, tuple[Any, Any]] = {
     CONF_MAX_SUNSET_TIME: (cv.time, str),
     CONF_BRIGHTNESS_MODE_TIME_LIGHT: (cv.time_period, timedelta_as_int),
     CONF_BRIGHTNESS_MODE_TIME_DARK: (cv.time_period, timedelta_as_int),
+    CONF_BRIGHTNESS_MODE_TIME_DARK_SUNRISE: (cv.time_period, timedelta_as_int),
+    CONF_BRIGHTNESS_MODE_TIME_LIGHT_SUNRISE: (cv.time_period, timedelta_as_int),
+    CONF_BRIGHTNESS_MODE_TIME_LIGHT_SUNSET: (cv.time_period, timedelta_as_int),
+    CONF_BRIGHTNESS_MODE_TIME_DARK_SUNSET: (cv.time_period, timedelta_as_int),
     CONF_COLOR_MODE_TIME_LIGHT: (cv.time_period, timedelta_as_int),
     CONF_COLOR_MODE_TIME_DARK: (cv.time_period, timedelta_as_int),
     CONF_DAWN_DURATION: (cv.time_period, timedelta_as_int),

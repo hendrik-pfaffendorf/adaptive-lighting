@@ -314,6 +314,10 @@ class SunLightSettings:
     max_sunset_time: datetime.time | None
     brightness_mode_time_dark: datetime.timedelta
     brightness_mode_time_light: datetime.timedelta
+    brightness_mode_time_dark_sunrise: datetime.timedelta | None = None
+    brightness_mode_time_light_sunrise: datetime.timedelta | None = None
+    brightness_mode_time_dark_sunset: datetime.timedelta | None = None
+    brightness_mode_time_light_sunset: datetime.timedelta | None = None
     brightness_mode: Literal["default", "linear", "tanh"] = "default"
     color_mode_time_dark: datetime.timedelta = datetime.timedelta(seconds=7200)
     color_mode_time_light: datetime.timedelta = datetime.timedelta(seconds=3600)
@@ -355,9 +359,15 @@ class SunLightSettings:
 
     def _brightness_pct_tanh(self, dt: datetime.datetime) -> float:
         event, ts_event = self.sun.closest_event(dt)
-        dark = self.brightness_mode_time_dark.total_seconds()
-        light = self.brightness_mode_time_light.total_seconds()
         if event == SunEvent.SUNRISE:
+            dark = (
+                self.brightness_mode_time_dark_sunrise
+                or self.brightness_mode_time_dark
+            ).total_seconds()
+            light = (
+                self.brightness_mode_time_light_sunrise
+                or self.brightness_mode_time_light
+            ).total_seconds()
             brightness = scaled_tanh(
                 dt.timestamp() - ts_event,
                 x1=-dark,
@@ -368,6 +378,14 @@ class SunLightSettings:
                 y_max=self.max_brightness,
             )
         elif event == SunEvent.SUNSET:
+            dark = (
+                self.brightness_mode_time_dark_sunset
+                or self.brightness_mode_time_dark
+            ).total_seconds()
+            light = (
+                self.brightness_mode_time_light_sunset
+                or self.brightness_mode_time_light
+            ).total_seconds()
             brightness = scaled_tanh(
                 dt.timestamp() - ts_event,
                 x1=-light,  # shifted timestamp for the start of sunset
@@ -386,9 +404,15 @@ class SunLightSettings:
         event, ts_event = self.sun.closest_event(dt)
         # at ts_event - dt_start, brightness == start_brightness
         # at ts_event + dt_end, brightness == end_brightness
-        dark = self.brightness_mode_time_dark.total_seconds()
-        light = self.brightness_mode_time_light.total_seconds()
         if event == SunEvent.SUNRISE:
+            dark = (
+                self.brightness_mode_time_dark_sunrise
+                or self.brightness_mode_time_dark
+            ).total_seconds()
+            light = (
+                self.brightness_mode_time_light_sunrise
+                or self.brightness_mode_time_light
+            ).total_seconds()
             brightness = lerp(
                 dt.timestamp() - ts_event,
                 x1=-dark,
@@ -397,6 +421,14 @@ class SunLightSettings:
                 y2=self.max_brightness,
             )
         elif event == SunEvent.SUNSET:
+            dark = (
+                self.brightness_mode_time_dark_sunset
+                or self.brightness_mode_time_dark
+            ).total_seconds()
+            light = (
+                self.brightness_mode_time_light_sunset
+                or self.brightness_mode_time_light
+            ).total_seconds()
             brightness = lerp(
                 dt.timestamp() - ts_event,
                 x1=-light,
