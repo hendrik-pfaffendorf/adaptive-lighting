@@ -2589,7 +2589,7 @@ class AdaptiveLightingManager:
             untracked_timer.cancel()
 
         last_transition = float(last_service_data.get(ATTR_TRANSITION) or 0.0)
-        transition_delay = max(last_transition + 0.75, 1.5)
+        transition_delay = max(last_transition + 3.5, 2.0)
 
         _LOGGER.debug(
             "Start transition timer of %s seconds (transition=%s) for light %s",
