@@ -3379,32 +3379,12 @@ class AdaptiveLightingManager:
                 if attribute in manual_control
                 else last_service_data
             )
-            if on_member_states and attribute not in manual_control:
-                for member_state in on_member_states:
-                    member_old = dict(old_attributes)
-                    if (
-                        (old_k := member_old.get(ATTR_COLOR_TEMP_KELVIN)) is not None
-                        and (min_k := member_state.attributes.get("min_color_temp_kelvin"))
-                        is not None
-                        and (max_k := member_state.attributes.get("max_color_temp_kelvin"))
-                        is not None
-                    ):
-                        member_old[ATTR_COLOR_TEMP_KELVIN] = clamp(old_k, min_k, max_k)
-                    changed_attributes |= attribute & _attributes_have_changed(
-                        old_attributes=member_old,
-                        new_attributes=member_state.attributes,
-                        light=member_state.entity_id,
-                        context=context,
-                    )
-                    if attribute in changed_attributes:
-                        break
-            else:
-                changed_attributes |= attribute & _attributes_have_changed(
-                    old_attributes=dict(old_attributes),
-                    new_attributes=refreshed_state.attributes,
-                    light=light,
-                    context=context,
-                )
+            changed_attributes |= attribute & _attributes_have_changed(
+                old_attributes=dict(old_attributes),
+                new_attributes=refreshed_state.attributes,
+                light=light,
+                context=context,
+            )
         if changed_attributes:
             self.update_manual_control_state(
                 light,
