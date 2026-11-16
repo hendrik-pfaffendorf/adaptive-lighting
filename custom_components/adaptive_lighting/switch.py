@@ -3334,7 +3334,11 @@ class AdaptiveLightingManager:
         # Ensure HASS is correctly updating your light's state with
         # light.turn_on calls if any problems arise. This
         # can happen e.g. using zigbee2mqtt with 'report: false' in device settings.
-        await async_update_entity(self.hass, light)
+        member_ids = self._get_hue_group_members(light)
+        await asyncio.gather(
+            async_update_entity(self.hass, light),
+            *(async_update_entity(self.hass, mid) for mid in member_ids),
+        )
         refreshed_state = self.hass.states.get(light)
         if refreshed_state is None or refreshed_state.state != STATE_ON:
             return LightControlAttributes.NONE
@@ -3344,7 +3348,6 @@ class AdaptiveLightingManager:
         manual_control_states = self.last_manual_control_state.get(light, {})
         changed_attributes = LightControlAttributes.NONE
 
-        member_ids = self._get_hue_group_members(light)
         member_states = [
             st
             for mid in member_ids
